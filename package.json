@@ -9,9 +9,8 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@mozilla/readability": "^0.6.0",
     "@supabase/supabase-js": "^2.89.0",
-    "jsdom": "^27.4.0",
+    "cheerio": "^1.1.2",
     "next": "16.1.1",
     "openai": "^6.15.0",
     "react": "19.2.3",

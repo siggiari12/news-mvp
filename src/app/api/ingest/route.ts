@@ -2,11 +2,8 @@ import { NextResponse } from 'next/server';
 import Parser from 'rss-parser';
 import crypto from 'crypto';
 import { supabaseServer } from '@/lib/supabase';
-import { JSDOM } from 'jsdom';
-import { Readability } from '@mozilla/readability';
+import * as cheerio from 'cheerio'; // Nýi létti pakkinn!
 import OpenAI from 'openai';
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const RSS_FEEDS = [
   'https://www.ruv.is/rss/frettir',
@@ -17,73 +14,59 @@ const RSS_FEEDS = [
 
 async function fetchContentAndImage(url: string) {
   try {
-    // Þykjumst vera nýjasti Chrome vafri til að komast framhjá vörnum
     const res = await fetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Language': 'is-IS,is;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Referer': 'https://www.google.com/',
-        'Upgrade-Insecure-Requests': '1',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'cross-site',
-        'Sec-Fetch-User': '?1'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
       }
     });
     
-    // Ef MBL bannar okkur (t.d. 403 Forbidden), þá sjáum við það hér
-    if (!res.ok) {
-        console.log(`⚠️ BLOKKAÐ: ${url} skilaði status ${res.status}`);
-        return { text: null, image: null };
-    }
+    if (!res.ok) return { text: null, image: null };
     
     const html = await res.text();
-    const dom = new JSDOM(html, { url });
-    const doc = dom.window.document;
+    // Hlaða HTML inn í Cheerio
+    const $ = cheerio.load(html);
     
-    const reader = new Readability(doc);
-    const article = reader.parse();
-    const text = article ? article.textContent : null;
+    // 1. Sækja texta (Finnum allar málsgreinar <p>)
+    // Við reynum að finna aðal-efnið fyrst til að sleppa auglýsingum
+    let textContainer = $('article, .article-body, .main-content, .content, #main');
+    if (textContainer.length === 0) textContainer = $('body'); // Fallback
+    
+    // Söfnum saman textanum úr öllum <p> tögum
+    const text = textContainer.find('p').map((i, el) => $(el).text()).get().join('\n\n');
 
     let image = null;
 
-    // 1. Open Graph
-    const ogImage = doc.querySelector('meta[property="og:image"]');
-    if (ogImage) image = ogImage.getAttribute('content');
+    // 2. Finna mynd (Cheerio leiðin)
+    
+    // A. Open Graph
+    image = $('meta[property="og:image"]').attr('content');
 
-    // 2. JSON-LD
+    // B. JSON-LD (aðeins flóknara í Cheerio en virkar)
     if (!image) {
-      const scripts = doc.querySelectorAll('script[type="application/ld+json"]');
-      for (let i = 0; i < scripts.length; i++) {
+      $('script[type="application/ld+json"]').each((i, el) => {
         try {
-          const data = JSON.parse(scripts[i].textContent || '{}');
-          if (data.image && data.image.url) { image = data.image.url; break; }
+          const data = JSON.parse($(el).html() || '{}');
+          if (data.image && data.image.url) image = data.image.url;
         } catch (e) {}
-      }
+      });
     }
 
-    // 3. NUCLEAR MBL SEARCH (Með JSON/Escaped slash stuðningi)
+    // C. MBL Nuclear Search (Regex virkar alltaf á hráa HTMLið)
     if (!image && url.includes('mbl.is')) {
-        console.log("   > MBL Deep Scan...");
-        // Leitum að: c.arvakur.is ... frimg ... .jpg
         const matches = html.match(/https?:\\?\/\\?\/[^"'\s]*arvakur[^"'\s]*frimg[^"'\s]*\.jpg/gi);
-        
         if (matches && matches.length > 0) {
             image = matches[0].replace(/\\/g, '');
-            console.log("   > Fann MBL mynd (Nuclear):", image);
         }
     }
 
-    // 4. Fallback
+    // D. Fallback (leita að img tögum)
     if (!image) {
-      const allImgs = doc.querySelectorAll('img');
-      for (let img of allImgs) {
-        const src = img.getAttribute('src');
+      $('img').each((i, el) => {
+        const src = $(el).attr('src');
         if (src && src.match(/\.(jpg|jpeg|png|webp)/i) && !src.includes('logo') && !src.includes('icon')) {
-           image = src; break;
+           if (!image) image = src; // Taka fyrstu mynd
         }
-      }
+      });
     }
 
     // --- LAGA SLÓÐIR ---
@@ -105,6 +88,7 @@ async function fetchContentAndImage(url: string) {
 
 async function generateEmbedding(text: string) {
   try {
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
     const cleanText = text.replace(/\n/g, ' ').substring(0, 8000);
     const response = await openai.embeddings.create({
       model: "text-embedding-3-small",
@@ -124,7 +108,6 @@ export async function GET() {
 
   try {
     for (const feedUrl of RSS_FEEDS) {
-      console.log(`Vinn með: ${feedUrl}`);
       let feed;
       try { feed = await parser.parseURL(feedUrl); } catch (e) { continue; }
 
@@ -150,8 +133,6 @@ export async function GET() {
           const { data: existing } = await supa.from('articles').select('id, image_url').eq('url', url).maybeSingle();
           
           if (existing && existing.image_url) continue;
-
-          console.log(`   > Vinn: ${title.substring(0, 20)}...`);
 
           let imageUrl = null;
           if (item.media && item.media['$'] && item.media['$'].url) imageUrl = item.media['$'].url;
