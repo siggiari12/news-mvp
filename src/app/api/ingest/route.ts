@@ -34,7 +34,7 @@ async function fetchContentAndImage(url: string) {
     // Söfnum saman textanum úr öllum <p> tögum
     const text = textContainer.find('p').map((i, el) => $(el).text()).get().join('\n\n');
 
-    let image = null;
+    let image: string | null | undefined = null;
 
     // 2. Finna mynd (Cheerio leiðin)
     
