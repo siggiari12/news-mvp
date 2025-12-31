@@ -1,73 +1,135 @@
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #000000;
+  --foreground: #ffffff;
+  --card-bg: #1a1a1a;
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   margin: 0;
-  padding: 20px;
+  padding: 0;
+  /* Þetta slekkur á "bounce" á iOS og gerir skrollið smooth */
+  overscroll-behavior-y: none; 
 }
 
-.container {
-  max-width: 800px;
-  margin: 0 auto;
+/* Aðalglugginn sem sér um skrollið */
+.feed-container {
+  height: 100vh; /* 100% af hæð skjásins */
+  width: 100%;
+  overflow-y: scroll; /* Leyfa lóðrétt skroll */
+  scroll-snap-type: y mandatory; /* Galdurinn: Skrollið verður að stoppa á spjaldi */
 }
 
-.header {
+/* ... haltu :root og body og feed-container eins og þau voru ... */
+
+.news-card {
+  height: 100vh;
+  width: 100%;
+  scroll-snap-align: start;
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 40px;
-  border-bottom: 2px solid #eee;
-  padding-bottom: 20px;
-}
-
-.refresh-btn {
-  background: #0070f3;
-  color: white;
-  text-decoration: none;
-  padding: 10px 20px;
-  border-radius: 5px;
-  font-weight: bold;
-}
-
-.article-card {
-  border: 1px solid #eaeaea;
-  border-radius: 10px;
+  flex-direction: column;
+  justify-content: flex-end; /* Textinn neðst */
   padding: 20px;
-  margin-bottom: 20px;
-  transition: box-shadow 0.2s;
+  position: relative;
+  background: #000; /* Fallback ef engin mynd */
+  border-bottom: 1px solid #333;
+  overflow: hidden; /* Passa að myndin fari ekki út fyrir */
 }
 
-.article-card:hover {
-  box-shadow: 0 4px 14px rgba(0,0,0,0.1);
+/* Myndin sem fyllir skjáinn */
+.bg-image {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover; /* Myndin fyllir allan rammann */
+  z-index: 0;
 }
 
-.meta {
-  font-size: 0.8rem;
-  color: #666;
-  margin-bottom: 10px;
-  text-transform: uppercase;
+/* Skuggi svo textinn sjáist (gradient frá svörtu upp í gegnsætt) */
+.overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 80%; /* Skugginn nær upp 80% af skjánum */
+  background: linear-gradient(to top, rgba(0,0,0,0.95), rgba(0,0,0,0));
+  z-index: 1;
+}
+
+/* Allt efni (texti) verður að vera ofan á myndinni */
+.source-badge, .content, .refresh-btn {
+  z-index: 2; 
+  position: relative;
+}
+
+/* ... haltu source-badge, content, title, excerpt og refresh-btn eins og þau voru ... */
+
+
+.source-badge {
+  position: absolute;
+  top: 40px;
+  left: 20px;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-weight: bold;
+  font-size: 0.9rem;
+  backdrop-filter: blur(10px);
+}
+
+.content {
+  margin-top: auto; /* Ýtir textanum niður (eins og á TikTok) */
+  margin-bottom: 80px; /* Pláss fyrir neðri part */
 }
 
 .title {
-  margin: 0 0 10px 0;
-  font-size: 1.5rem;
+  font-size: 1.8rem;
+  font-weight: 800;
+  line-height: 1.2;
+  margin-bottom: 16px;
+  text-shadow: 0 2px 4px rgba(0,0,0,0.5);
 }
 
 .title a {
-  color: inherit;
+  color: white;
   text-decoration: none;
 }
 
-.title a:hover {
-  text-decoration: underline;
+.excerpt {
+  font-size: 1rem;
+  line-height: 1.5;
+  color: #ccc;
+  display: -webkit-box;
+  -webkit-line-clamp: 4; /* Sýna max 4 línur */
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
-.excerpt {
-  color: #444;
-  line-height: 1.6;
+/* Fljótandi takki til að refresh-a */
+.refresh-btn {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 100;
+  background: rgba(0, 112, 243, 0.8);
+  color: white;
+  border: none;
+  padding: 10px;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  text-decoration: none;
+  font-size: 1.2rem;
 }
