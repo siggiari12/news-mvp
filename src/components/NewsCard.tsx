@@ -97,8 +97,8 @@ export default function NewsCard({ article }: { article: any }) {
           zIndex: 3, 
           position: 'absolute', bottom: 0, left: 0, width: '100%',
           padding: '24px',
-          // Lyftum textanum upp svo hann rekist ekki í örina eða iPhone strikið
-          paddingBottom: 'calc(80px + env(safe-area-inset-bottom))', 
+          // Lyftum textanum upp (160px frá botni)
+          paddingBottom: '160px', 
           opacity: expanded ? 0 : 1,
           pointerEvents: expanded ? 'none' : 'auto',
           transition: 'opacity 0.3s ease'
@@ -112,14 +112,13 @@ export default function NewsCard({ article }: { article: any }) {
         <p className="excerpt" onClick={() => setExpanded(true)}>{article.excerpt}</p>
       </div>
 
-      {/* 3b. ÖRIN (Með Safe Area) */}
+      {/* 3b. ÖRIN (100px frá botni) */}
       <div 
         onClick={() => setExpanded(true)} 
         style={{
           zIndex: 3,
           position: 'absolute', 
-          // Lyftum örinni upp fyrir strikið
-          bottom: 'calc(20px + env(safe-area-inset-bottom))', 
+          bottom: '100px', 
           left: 0, width: '100%',
           display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'pointer',
           opacity: expanded ? 0 : 0.8,
@@ -139,7 +138,7 @@ export default function NewsCard({ article }: { article: any }) {
         opacity: expanded ? 1 : 0,
         pointerEvents: expanded ? 'auto' : 'none',
         transition: 'opacity 0.3s ease 0.1s',
-        paddingTop: 'calc(40px + env(safe-area-inset-top))' // Pláss fyrir notch
+        paddingTop: '60px'
       }}>
         
         {/* Header */}
@@ -174,7 +173,7 @@ export default function NewsCard({ article }: { article: any }) {
              <div>{relatedArticles.map(rel => <div key={rel.id} style={{marginBottom:'15px', fontWeight:'bold'}}>{rel.title}</div>)}</div>
            )}
            
-           <div style={{textAlign: 'center', marginTop: '50px', color: '#888', paddingBottom: 'calc(50px + env(safe-area-inset-bottom))'}}>
+           <div style={{textAlign: 'center', marginTop: '50px', color: '#888', paddingBottom: '80px'}}>
              <p onClick={() => setExpanded(false)}>⬇️ Loka frétt</p>
            </div>
         </div>
