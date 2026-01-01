@@ -77,9 +77,9 @@ export default function NewsModal({ article, onClose }: NewsModalProps) {
 
         {/* FLIPARNIR */}
         <div style={{display: 'flex', gap: '10px', marginBottom: '20px', borderBottom: '1px solid #333'}}>
-          <button onClick={() => setActiveTab('read')} style={tabStyle(activeTab === 'read')}>📄 Lestur</button>
-          <button onClick={() => setActiveTab('eli10')} style={tabStyle(activeTab === 'eli10')}>🤖 ELI10</button>
-          <button onClick={() => setActiveTab('related')} style={tabStyle(activeTab === 'related')}>🔗 Tengt</button>
+          <button onClick={() => setActiveTab('read')} style={tabStyle(activeTab === 'read')}>📄 Fréttin</button>
+          <button onClick={() => setActiveTab('eli10')} style={tabStyle(activeTab === 'eli10')}>🤖 Samantekt</button>
+          <button onClick={() => setActiveTab('related')} style={tabStyle(activeTab === 'related')}>🔗 Tengt efni</button>
         </div>
 
         {/* EFNIÐ */}
@@ -103,7 +103,7 @@ export default function NewsModal({ article, onClose }: NewsModalProps) {
             </div>
           )}
 
-          {/* ELI10 */}
+          {/* ELI10 (SAMANTEKT) */}
           {activeTab === 'eli10' && (
             <div>
               {loadingSummary ? (
@@ -114,7 +114,7 @@ export default function NewsModal({ article, onClose }: NewsModalProps) {
             </div>
           )}
 
-          {/* RELATED */}
+          {/* RELATED (TENGT EFNI) */}
           {activeTab === 'related' && (
             <div style={{paddingTop: '10px'}}>
               {loadingRelated ? (

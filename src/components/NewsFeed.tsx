@@ -49,9 +49,7 @@ export default function NewsFeed({ articles }: { articles: any[] }) {
           onClose={() => setSelectedArticle(null)} 
         />
       )}
-
-      <a href="/api/ingest" target="_blank" className="refresh-btn">🔄</a>
-
+      
       {articles.map((article) => {
         const branding = getBranding(article.sources?.name);
 
