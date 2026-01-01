@@ -145,13 +145,46 @@ body {
   transform: scale(0.9);
 }
 
-/* --- ANIMATIONS FYRIR MODAL --- */
-@keyframes slideUp {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
+/* Hoppandi ör */
+@keyframes bounce {
+  0%, 20%, 50%, 80%, 100% {transform: translateY(0);}
+  40% {transform: translateY(-10px);}
+  60% {transform: translateY(-5px);}
+}
+
+.arrow-bounce {
+  animation: bounce 2s infinite;
+}
+
+/* Cross-fade upplifun fyrir gluggann */
+@keyframes fadeScale {
+  from { 
+    opacity: 0; 
+    transform: scale(0.95) translateY(20px); 
+  }
+  to { 
+    opacity: 1; 
+    transform: scale(1) translateY(0); 
+  }
 }
 
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+/* Leyfa skroll inni í modal glugganum */
+.modal-content {
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+}
+/* Tryggja að modal content sé alltaf skrollanlegt */
+.modal-content {
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+  height: 100%;
+}
+
+/* Ef það virkar ekki, prófaðu að slökkva á snap-scroll þegar modal er opinn */
+body.modal-open {
+  overflow: hidden;
 }
