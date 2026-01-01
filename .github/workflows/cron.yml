@@ -1,0 +1,11 @@
+name: Sækja fréttir
+on:
+  schedule:
+    - cron: '*/15 * * * *' # Keyra á 15 mín fresti
+
+jobs:
+  ping-api:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kalla á Ingest API
+        run: curl https://news-mvp.vercel.app/api/ingest
