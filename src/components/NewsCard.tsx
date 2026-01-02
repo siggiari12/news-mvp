@@ -173,9 +173,23 @@ export default function NewsCard({ article }: { article: any }) {
              <div>{relatedArticles.map(rel => <div key={rel.id} style={{marginBottom:'15px', fontWeight:'bold'}}>{rel.title}</div>)}</div>
            )}
            
-           <div style={{textAlign: 'center', marginTop: '50px', color: '#888', paddingBottom: '80px'}}>
-             <p onClick={() => setExpanded(false)}>⬇️ Loka frétt</p>
+            {/* LOKA TAKKINN (Ör niður) */}
+           <div 
+             onClick={() => setExpanded(false)} 
+             style={{
+                marginTop: '50px', 
+                marginBottom: '80px', // Passlegt pláss neðst
+                display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'pointer',
+                opacity: 0.8
+             }}
+           >
+             <span style={{fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '2px', fontWeight: 'bold', marginBottom: '5px'}}>Loka</span>
+             {/* Ör sem bendir niður */}
+             <svg className="arrow-bounce" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+               <path d="M6 9l6 6 6-6"/> 
+             </svg>
            </div>
+
         </div>
       </div>
 
