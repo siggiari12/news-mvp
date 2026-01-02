@@ -21,6 +21,7 @@ export default function NewsCard({ article }: { article: any }) {
   const cardRef = useRef<HTMLElement>(null);
   const branding = getBranding(article.sources?.name);
 
+  // Loka spjaldi ef skrollað er í burtu
   useEffect(() => {
     const observer = new IntersectionObserver(
       ([entry]) => {
@@ -179,11 +180,37 @@ export default function NewsCard({ article }: { article: any }) {
           className="modal-content"
           style={{flex: 1, overflowY: 'auto', padding: '0 20px 100px 20px'}}
         >
+           {/* LESTUR (Uppfært) */}
            {activeTab === 'read' && (
-             <div style={{fontSize: '1.1rem', lineHeight: '1.7', color: '#eee'}}>
-               {article.full_text ? article.full_text.split('\n').map((p:string, i:number) => p.trim() && <p key={i} style={{marginBottom:'15px'}}>{p}</p>) : <p>{article.excerpt}</p>}
+             <div style={{fontSize: '1.1rem', lineHeight: '1.8', color: '#eee', fontFamily: 'system-ui, sans-serif'}}>
+               {article.full_text ? (
+                 article.full_text.split('\n').map((paragraph: string, i: number) => {
+                   // Ef línan er hlekkur, breytum í takka
+                   if (paragraph.includes('[Lesa nánar á vef miðils]')) {
+                      return null; // Felum texta-hlekkinn (setjum takkann neðst í staðinn)
+                   }
+                   return paragraph.trim() && <p key={i} style={{marginBottom:'20px'}}>{paragraph}</p>;
+                 })
+               ) : (
+                 <p>{article.excerpt}</p>
+               )}
+               
+               {/* HLEKKUR Á MIÐIL */}
+               <div style={{marginTop: '40px', textAlign: 'center'}}>
+                  <a href={article.url} target="_blank" style={{
+                    display: 'inline-block',
+                    color: 'white', textDecoration: 'none', fontWeight: 'bold', 
+                    border: '1px solid rgba(255,255,255,0.3)', 
+                    background: 'rgba(255,255,255,0.1)',
+                    padding: '12px 24px', borderRadius: '30px',
+                    backdropFilter: 'blur(5px)'
+                  }}>
+                    Lesa nánar á vef miðils ↗
+                  </a>
+               </div>
              </div>
            )}
+
            {activeTab === 'eli10' && (
              <div>{loadingSummary ? '🤖 Hugsa...' : <p style={{fontSize:'1.2rem', lineHeight:'1.6'}}>{summary}</p>}</div>
            )}

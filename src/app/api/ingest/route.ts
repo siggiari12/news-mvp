@@ -13,32 +13,37 @@ const RSS_FEEDS = [
   'https://www.mbl.is/feeds/innlent/',
   'https://www.visir.is/rss/allt',
   'https://www.dv.is/rss/',
+  // Erlendar fréttir (NÝTT!)
+  'http://feeds.bbci.co.uk/news/world/rss.xml', // BBC
+  'https://rss.nytimes.com/services/xml/rss/nyt/World.xml', // NYT
+  'https://www.theguardian.com/world/rss', // The Guardian
 ];
 
-// --- NÝTT: AI Hreinsun og Flokkun (Allt í einu!) ---
+// --- NÝTT: AI Hreinsun, Flokkun og ÞÝÐING ---
 async function processArticle(title: string, rawText: string) {
   try {
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
     
-    // Styttum í 5000 stafi (í stað 15000) til að flýta fyrir og forðast timeout
+    // Styttum í 5000 stafi
     const textSample = rawText.substring(0, 5000); 
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini", // Ódýrt og hratt
+      model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
-          content: `Þú ert fréttaritari. Verkefni þitt er að hreinsa og flokka frétt.
+          content: `Þú ert fréttaritari. Verkefni þitt er að hreinsa, flokka og ÞÝÐA frétt.
           
           OUTPUT JSON snið:
           {
-            "clean_text": "Hér kemur hreinn texti fréttarinnar (engin valmyndir, engir hlekkir, engar auglýsingar, bara kjötið).",
-            "category": "innlent" | "erlent" | "sport"
+            "clean_text": "Hér kemur hreinn texti fréttarinnar á ÍSLENSKU. Þýddu textann ef hann er á ensku. Fjarlægðu allt drasl.",
+            "category": "innlent" | "erlent" | "sport",
+            "translated_title": "Titillinn þýddur á íslensku (ef hann var á ensku)"
           }
 
           REGLUR FYRIR FLOKKUN:
           1. SPORT: Íþróttir, fótbolti, handbolti, lið, leikir (líka erlent sport).
-          2. ERLENT: Gerist utan Íslands (nema það sé sport).
+          2. ERLENT: Gerist utan Íslands (nema það sé sport). Ef fréttin kemur frá BBC/NYT/Guardian er hún líklega Erlent eða Sport.
           3. INNLENT: Allt annað.
           `
         },
@@ -48,20 +53,20 @@ async function processArticle(title: string, rawText: string) {
         }
       ],
       temperature: 0.3,
-      response_format: { type: "json_object" } // Tryggir að við fáum JSON
+      response_format: { type: "json_object" }
     });
 
     const result = JSON.parse(response.choices[0].message.content || '{}');
     
     return {
-        text: result.clean_text || rawText, // Ef AI klikkar, notum hráa textann
-        category: result.category || 'innlent'
+        text: result.clean_text || rawText, 
+        category: result.category || 'erlent',
+        title: result.translated_title || title // Notum þýddan titil ef hann er til
     };
 
   } catch (e) {
     console.error("AI vinnsla mistókst:", e);
-    // Fallback: Skilum hráum texta og giskum á 'innlent'
-    return { text: rawText, category: 'innlent' };
+    return { text: rawText, category: 'innlent', title: title };
   }
 }
 
@@ -83,18 +88,15 @@ async function fetchContentAndImage(url: string) {
         return { text: null, image: null };
     }
 
-    // Finna mynd
     const imageMatch = markdown.match(/!\[.*?\]\((https?:\/\/.*?(jpg|jpeg|png|webp).*?)\)/i);
     let image = imageMatch ? imageMatch[1] : null;
 
-    // Hreinsa texta (gróflega fyrst, AI sér um fínpússun)
     let text = markdown
-        .replace(/!\[.*?\]\(.*?\)/g, '') // Myndir burt
-        .replace(/\[.*?\]\(.*?\)/g, '$1') // Hlekkir -> Texti
-        .replace(/[#*`_]/g, '') // Tákn burt
+        .replace(/!\[.*?\]\(.*?\)/g, '')
+        .replace(/\[.*?\]\(.*?\)/g, '$1')
+        .replace(/[#*`_]/g, '')
         .trim();
 
-    // Skilum max 5000 stöfum (til að spara pláss/tíma)
     return { text: text.substring(0, 5000), image }; 
 
   } catch (error) {
@@ -131,6 +133,9 @@ export async function GET() {
       if (feedUrl.includes('mbl')) sourceName = 'MBL';
       if (feedUrl.includes('visir')) sourceName = 'Vísir';
       if (feedUrl.includes('dv')) sourceName = 'DV';
+      if (feedUrl.includes('bbc')) sourceName = 'BBC'; // Nýtt
+      if (feedUrl.includes('nytimes')) sourceName = 'NYT'; // Nýtt
+      if (feedUrl.includes('guardian')) sourceName = 'The Guardian'; // Nýtt
 
       let { data: source } = await supa.from('sources').select('id').eq('rss_url', feedUrl).maybeSingle();
       if (!source) {
@@ -139,7 +144,7 @@ export async function GET() {
       }
 
       if (source) {
-        // Tökum 1 frétt (til að spara tíma/pening)
+        // Tökum 1 frétt (til að spara tíma)
         const items = feed.items?.slice(0, 1) || [];
         
         for (const item of items) {
@@ -160,29 +165,32 @@ export async function GET() {
           
           if (!imageUrl && scraped.image) imageUrl = scraped.image;
 
-          // 3. AI Hreinsun og Flokkun (NÝTT!)
+          // 3. AI Hreinsun, Flokkun og Þýðing
           const processed = await processArticle(item.title || '', scraped.text || item.contentSnippet || '');
 
           const hash = crypto.createHash('md5').update(((item.title || '') + url).toLowerCase()).digest('hex');
 
+          // Bætum við hlekk neðst í textann
+          const textWithLink = processed.text + `\n\n[Lesa nánar á vef miðils](${url})`;
+
           const articleData = {
             source_id: source.id,
-            title: item.title,
+            title: processed.title, // Þýddur titill!
             excerpt: (item.contentSnippet || '').substring(0, 300),
-            full_text: processed.text, // Hreinn texti frá AI
+            full_text: textWithLink, 
             url: url,
             published_at: item.isoDate ? new Date(item.isoDate) : new Date(),
-            language: 'is',
+            language: 'is', // Allt er núna á íslensku!
             image_url: imageUrl,
             hash: hash,
-            category: processed.category // Flokkur frá AI
+            category: processed.category
           };
 
           const { data: saved, error } = await supa.from('articles').upsert(articleData, { onConflict: 'url' }).select().single();
           
           if (!error && saved) {
             totalSaved++;
-            const embedding = await generateEmbedding((item.title || '') + " " + (processed.text || "").substring(0, 500));
+            const embedding = await generateEmbedding((processed.title || '') + " " + (processed.text || "").substring(0, 500));
             if (embedding) await supa.from('article_embeddings').upsert({ article_id: saved.id, embedding });
           }
         }
