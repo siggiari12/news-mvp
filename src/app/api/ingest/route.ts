@@ -31,10 +31,12 @@ async function classifyArticle(title: string, excerpt: string) {
         {
           role: "system",
           content: `Þú ert fréttaflokkari. Flokkaðu fréttina í EINN af þessum flokkum: 'innlent', 'erlent', 'sport'.
-          Reglur:
-          - Ef fréttin fjallar um íþróttir (fótbolta, handbolta, lið, leiki), veldu 'sport'.
-          - Ef fréttin gerist utan Íslands (USA, Evrópa, Stríð), veldu 'erlent'.
-          - Annars veldu 'innlent'.
+          
+          FORGANGSRÖÐUN (MIKILVÆGT):
+          1. SPORT: Ef fréttin fjallar um íþróttir (fótbolta, handbolta, golf, formúlu 1, o.s.frv.), þá er hún ALLTAF 'sport', sama hvort hún gerist á Íslandi eða útlöndum (t.d. Enski boltinn = sport).
+          2. ERLENT: Ef hún er ekki sport, en gerist utan Íslands.
+          3. INNLENT: Allt annað.
+          
           Skilaðu BARA einu orði.`
         },
         {

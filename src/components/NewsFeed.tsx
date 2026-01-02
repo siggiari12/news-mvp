@@ -1,20 +1,20 @@
 "use client";
 import { useState, useEffect } from "react";
-import NewsCard from "./NewsCard"; // MIKILVÆGT: Við notum NewsCard hér!
+import NewsCard from "./NewsCard";
 import { supabaseBrowser } from "@/lib/supabase";
 
 export default function NewsFeed({ initialArticles }: { initialArticles: any[] }) {
   const [articles, setArticles] = useState<any[]>(initialArticles);
   const [loading, setLoading] = useState(true);
+  const [activeCategory, setActiveCategory] = useState<'all' | 'innlent' | 'erlent' | 'sport'>('all');
 
   useEffect(() => {
     const fetchNews = async () => {
-      // console.log("Sæki nýjar fréttir...");
       const { data } = await supabaseBrowser
         .from('articles')
         .select('*, sources(name)')
         .order('published_at', { ascending: false })
-        .limit(50);
+        .limit(100);
       
       if (data) {
         setArticles(prev => {
@@ -27,7 +27,6 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
 
     fetchNews();
     
-    // Realtime hlustun
     const channel = supabaseBrowser
       .channel('realtime-articles')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'articles' }, (payload) => {
@@ -36,16 +35,18 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
       })
       .subscribe();
 
-    // Polling á 60 sek fresti
-    const interval = setInterval(() => {
-      fetchNews();
-    }, 60000);
+    const interval = setInterval(() => { fetchNews(); }, 60000);
 
     return () => { 
       supabaseBrowser.removeChannel(channel); 
       clearInterval(interval);
     };
   }, []);
+
+  const filteredArticles = articles.filter(article => {
+    if (activeCategory === 'all') return true;
+    return article.category === activeCategory;
+  });
 
   if (loading) {
     return (
@@ -60,17 +61,50 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
 
   return (
     <main className="feed-container">
-      {/* Hér notum við NewsCard sem sér um allt útlitið (örina, baksíðuna o.s.frv.) */}
-      {articles.map((article) => (
+      
+      {/* --- NÝTT: HREINIR FLIPAR --- */}
+      <div style={{
+        position: 'fixed', top: 0, left: 0, width: '100%', 
+        zIndex: 100, 
+        padding: '15px 0',
+        paddingTop: 'calc(15px + env(safe-area-inset-top))',
+        display: 'flex', justifyContent: 'center', gap: '25px', // Meira bil
+        background: 'linear-gradient(to bottom, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0) 100%)',
+        // Við notum ekki backdrop-filter hér því það getur stundum gert textann óskýran
+      }}>
+        <button onClick={() => setActiveCategory('all')} style={catStyle(activeCategory === 'all')}>ALLT</button>
+        <button onClick={() => setActiveCategory('innlent')} style={catStyle(activeCategory === 'innlent')}>INNLENT</button>
+        <button onClick={() => setActiveCategory('erlent')} style={catStyle(activeCategory === 'erlent')}>ERLENT</button>
+        <button onClick={() => setActiveCategory('sport')} style={catStyle(activeCategory === 'sport')}>SPORT</button>
+      </div>
+
+      {filteredArticles.map((article) => (
         <NewsCard key={article.id} article={article} />
       ))}
       
-      {articles.length === 0 && (
+      {filteredArticles.length === 0 && (
          <div className="news-card" style={{justifyContent: 'center', alignItems: 'center'}}>
-            <h2>Engar fréttir fundust 😢</h2>
-            <p>Appið er að leita...</p>
+            <h2>Engar fréttir í þessum flokki</h2>
          </div>
       )}
     </main>
   );
+}
+
+function catStyle(isActive: boolean) {
+  return {
+    background: 'none', border: 'none', 
+    color: isActive ? '#ffffff' : 'rgba(255,255,255,0.5)', 
+    fontWeight: '800', // Feitara letur
+    fontSize: '0.85rem', // Aðeins minna, meira "UI" legt
+    letterSpacing: '1px', // Smá bil milli stafa (mjög móðins)
+    textTransform: 'uppercase' as const, // Allt í hástöfum
+    textShadow: '0 2px 4px rgba(0,0,0,0.8)',
+    cursor: 'pointer',
+    position: 'relative' as const,
+    transition: 'all 0.2s',
+    // Við notum "underline" effect sem er aðeins frá textanum
+    borderBottom: isActive ? '2px solid white' : '2px solid transparent',
+    paddingBottom: '4px'
+  };
 }
