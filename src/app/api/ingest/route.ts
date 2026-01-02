@@ -2,8 +2,12 @@ import { NextResponse } from 'next/server';
 import Parser from 'rss-parser';
 import crypto from 'crypto';
 import { supabaseServer } from '@/lib/supabase';
-import * as cheerio from 'cheerio';
 import OpenAI from 'openai';
+import puppeteer from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
+
+export const maxDuration = 60; 
+export const dynamic = 'force-dynamic';
 
 const RSS_FEEDS = [
   'https://www.ruv.is/rss/frettir',
@@ -12,9 +16,8 @@ const RSS_FEEDS = [
   'https://www.dv.is/rss/',
 ];
 
-// --- NÝTT: Betri AI Flokkari ---
+// --- AI Flokkari ---
 async function classifyArticle(title: string, excerpt: string) {
-  // 1. Öryggisnet: Ef titill inniheldur augljós sport-orð, sleppum AI (sparar pening og er 100% rétt)
   const lowerTitle = title.toLowerCase();
   const sportWords = ['fótbolti', 'handbolti', 'körfubolti', 'liverpool', 'united', 'arsenal', 'deildin', 'mörk', 'landslið', 'valur', 'kr ', 'ka ', 'fh ', 'breiðablik', 'íþrótt', 'sport', 'leikur', 'marka'];
   
@@ -31,12 +34,10 @@ async function classifyArticle(title: string, excerpt: string) {
         {
           role: "system",
           content: `Þú ert fréttaflokkari. Flokkaðu fréttina í EINN af þessum flokkum: 'innlent', 'erlent', 'sport'.
-          
-          FORGANGSRÖÐUN (MIKILVÆGT):
-          1. SPORT: Ef fréttin fjallar um íþróttir (fótbolta, handbolta, golf, formúlu 1, o.s.frv.), þá er hún ALLTAF 'sport', sama hvort hún gerist á Íslandi eða útlöndum (t.d. Enski boltinn = sport).
+          FORGANGSRÖÐUN:
+          1. SPORT: Ef fréttin fjallar um íþróttir, þá er hún ALLTAF 'sport'.
           2. ERLENT: Ef hún er ekki sport, en gerist utan Íslands.
           3. INNLENT: Allt annað.
-          
           Skilaðu BARA einu orði.`
         },
         {
@@ -44,7 +45,7 @@ async function classifyArticle(title: string, excerpt: string) {
           content: `Titill: ${title}\nTexti: ${excerpt.substring(0, 300)}`
         }
       ],
-      temperature: 0.3, // Aðeins meira frelsi
+      temperature: 0.3,
     });
 
     const category = response.choices[0].message.content?.trim().toLowerCase();
@@ -59,65 +60,54 @@ async function classifyArticle(title: string, excerpt: string) {
   }
 }
 
-
+// --- Puppeteer Scraper ---
 async function fetchContentAndImage(url: string) {
+  let browser = null;
   try {
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-      }
+    chromium.setGraphicsMode = false;
+    
+    // Hér er lagfæringin: Setjum stillingar beint inn
+    browser = await puppeteer.launch({
+      args: chromium.args,
+      defaultViewport: { width: 1920, height: 1080 },
+      executablePath: await chromium.executablePath(),
+      headless: true, // eða "new"
     });
+
+    const page = await browser.newPage();
     
-    if (!res.ok) return { text: null, image: null };
-    
-    const html = await res.text();
-    const $ = cheerio.load(html);
-    
-    let textContainer = $('article, .article-body, .main-content, .content, #main');
-    if (textContainer.length === 0) textContainer = $('body');
-    
-    const text = textContainer.find('p').map((i, el) => $(el).text()).get().join('\n\n');
+    // Timeout 20 sekúndur
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 20000 });
 
-    let image: string | null | undefined = null;
-    image = $('meta[property="og:image"]').attr('content');
-
-    if (!image) {
-      $('script[type="application/ld+json"]').each((i, el) => {
-        try {
-          const data = JSON.parse($(el).html() || '{}');
-          if (data.image && data.image.url) image = data.image.url;
-        } catch (e) {}
-      });
-    }
-
-    if (!image && url.includes('mbl.is')) {
-        const matches = html.match(/https?:\\?\/\\?\/[^"'\s]*arvakur[^"'\s]*frimg[^"'\s]*\.jpg/gi);
-        if (matches && matches.length > 0) {
-            image = matches[0].replace(/\\/g, '');
-        }
-    }
-
-    if (!image) {
-      $('img').each((i, el) => {
-        const src = $(el).attr('src');
-        if (src && src.match(/\.(jpg|jpeg|png|webp)/i) && !src.includes('logo') && !src.includes('icon')) {
-           if (!image) image = src;
-        }
-      });
-    }
-
-    if (image) {
-      image = image.trim();
-      if (image.startsWith('//')) image = 'https:' + image;
-      else if (image.startsWith('/')) {
-        const u = new URL(url);
-        image = `${u.protocol}//${u.host}${image}`;
+    const data = await page.evaluate(() => {
+      const img = document.querySelector('meta[property="og:image"]')?.getAttribute('content');
+      
+      const content = document.querySelector('article, .story-body, .main-content, .content, [data-testid="article-body"]');
+      let text = "";
+      
+      if (content) {
+        text = content.textContent || ""; // Nota textContent (öruggara en innerText)
+      } else {
+        const paras = Array.from(document.querySelectorAll('p'));
+        text = paras
+          .filter(p => (p.textContent || "").length > 50)
+          .map(p => p.textContent || "")
+          .join('\n\n');
       }
-    }
+      
+      return { text, img };
+    });
+
+    await browser.close();
     
-    return { text, image };
+    // Hreinsa textann
+    let cleanedText = data.text ? data.text.replace(/\s+/g, ' ').trim() : null;
+
+    return { text: cleanedText, image: data.img || null };
+
   } catch (error) {
-    console.error(`Gat ekki scrapað ${url}:`, error);
+    console.error(`Puppeteer mistókst á ${url}:`, error);
+    if (browser) await browser.close();
     return { text: null, image: null };
   }
 }
@@ -159,7 +149,7 @@ export async function GET() {
       }
 
       if (source) {
-        // Tökum aðeins færri fréttir (3 í stað 5) til að spara AI tíma/kostnað
+        // Tökum 3 nýjustu
         const itemsToProcess = feed.items?.slice(0, 3) || [];
 
         for (const item of itemsToProcess) {
@@ -167,22 +157,19 @@ export async function GET() {
           if (!url) continue;
           
           const title = (item.title || '').trim();
-          const { data: existing } = await supa.from('articles').select('id, image_url').eq('url', url).maybeSingle();
+          const { data: existing } = await supa.from('articles').select('id').eq('url', url).maybeSingle();
           
-          // Ef fréttin er til, sleppum við henni (svo við borgum ekki fyrir AI aftur)
           if (existing) continue;
 
           let imageUrl = null;
           if (item.media && item.media['$'] && item.media['$'].url) imageUrl = item.media['$'].url;
           else if (item.enclosure && item.enclosure.url) imageUrl = item.enclosure.url;
 
-          let fullText = null;
+          // Puppeteer sækir efnið
           const scraped = await fetchContentAndImage(url);
-          fullText = scraped.text;
-          
+          let fullText = scraped.text;
           if (!imageUrl && scraped.image) imageUrl = scraped.image;
 
-          // --- NÝTT: AI Flokkun ---
           const category = await classifyArticle(title, fullText || item.contentSnippet || '');
 
           const hash = crypto.createHash('md5').update((title + url).toLowerCase()).digest('hex');
@@ -197,7 +184,7 @@ export async function GET() {
             language: 'is',
             image_url: imageUrl,
             hash: hash,
-            category: category // Vista flokkinn!
+            category: category
           };
 
           const { data: savedArticle, error } = await supa.from('articles').upsert(articleData, { onConflict: 'url' }).select().single();
@@ -217,6 +204,7 @@ export async function GET() {
     return NextResponse.json({ success: true, message: `Vann úr ${totalSaved} fréttum.` });
 
   } catch (error: any) {
+    console.error("Ingest Error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

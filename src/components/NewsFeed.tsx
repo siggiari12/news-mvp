@@ -62,25 +62,33 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
   return (
     <main className="feed-container">
       
-      {/* --- NÝTT: HREINIR FLIPAR --- */}
+      {/* --- HREINIR FLIPAR --- */}
       <div style={{
         position: 'fixed', top: 0, left: 0, width: '100%', 
         zIndex: 100, 
-        padding: '15px 0',
-        paddingTop: 'calc(15px + env(safe-area-inset-top))',
-        display: 'flex', justifyContent: 'center', gap: '25px', // Meira bil
-        background: 'linear-gradient(to bottom, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0) 100%)',
-        // Við notum ekki backdrop-filter hér því það getur stundum gert textann óskýran
+        // Færum þá aðeins neðar (meira pláss frá toppnum)
+        padding: '20px 0', 
+        paddingTop: 'calc(20px + env(safe-area-inset-top))',
+        display: 'flex', justifyContent: 'center', 
+        gap: '15px', // Minna bil (var 25px)
+        // Enginn gradient, bara smá skuggi til að textinn sjáist
+        background: 'linear-gradient(to bottom, rgba(0,0,0,0.6) 0%, transparent 100%)', 
+        pointerEvents: 'none' // Svo maður geti smellt í gegnum bakgrunninn (en takkarnir verða pointer-events: auto)
       }}>
-        <button onClick={() => setActiveCategory('all')} style={catStyle(activeCategory === 'all')}>ALLT</button>
-        <button onClick={() => setActiveCategory('innlent')} style={catStyle(activeCategory === 'innlent')}>INNLENT</button>
-        <button onClick={() => setActiveCategory('erlent')} style={catStyle(activeCategory === 'erlent')}>ERLENT</button>
-        <button onClick={() => setActiveCategory('sport')} style={catStyle(activeCategory === 'sport')}>SPORT</button>
+        {/* Takkarnir þurfa pointer-events: auto því gámurinn er none */}
+        <button onClick={() => setActiveCategory('all')} style={catStyle(activeCategory === 'all')}>Allt</button>
+        <button onClick={() => setActiveCategory('innlent')} style={catStyle(activeCategory === 'innlent')}>Innlent</button>
+        <button onClick={() => setActiveCategory('erlent')} style={catStyle(activeCategory === 'erlent')}>Erlent</button>
+        <button onClick={() => setActiveCategory('sport')} style={catStyle(activeCategory === 'sport')}>Sport</button>
       </div>
 
-      {filteredArticles.map((article) => (
-        <NewsCard key={article.id} article={article} />
-      ))}
+
+      {/* Lykillinn (key) hér að neðan neyðir React til að endurhlaða listanum þegar flokkur breytist */}
+      <div key={activeCategory} style={{width: '100%'}}>
+        {filteredArticles.map((article) => (
+          <NewsCard key={article.id} article={article} />
+        ))}
+      </div>
       
       {filteredArticles.length === 0 && (
          <div className="news-card" style={{justifyContent: 'center', alignItems: 'center'}}>
@@ -93,18 +101,18 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
 
 function catStyle(isActive: boolean) {
   return {
+    pointerEvents: 'auto' as const, // <-- ÞETTA ER LYKILINN!
     background: 'none', border: 'none', 
-    color: isActive ? '#ffffff' : 'rgba(255,255,255,0.5)', 
-    fontWeight: '800', // Feitara letur
-    fontSize: '0.85rem', // Aðeins minna, meira "UI" legt
-    letterSpacing: '1px', // Smá bil milli stafa (mjög móðins)
-    textTransform: 'uppercase' as const, // Allt í hástöfum
+    color: isActive ? '#ffffff' : 'rgba(255,255,255,0.6)', 
+    fontWeight: isActive ? '700' : '500', 
+    fontSize: '0.9rem', 
+    textTransform: 'uppercase' as const, 
     textShadow: '0 2px 4px rgba(0,0,0,0.8)',
     cursor: 'pointer',
     position: 'relative' as const,
     transition: 'all 0.2s',
-    // Við notum "underline" effect sem er aðeins frá textanum
     borderBottom: isActive ? '2px solid white' : '2px solid transparent',
     paddingBottom: '4px'
   };
 }
+
