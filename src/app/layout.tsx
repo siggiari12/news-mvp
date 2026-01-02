@@ -6,12 +6,18 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Fréttavaktin",
-  description: "Nýjustu fréttirnar með gervigreind",
+  title: "VIZKA",
+  description: "Nýjustu fréttirnar",
   manifest: "/manifest.json",
   themeColor: "#000000",
   viewport: "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "VIZKA",
+  },
 };
+
 
 export default function RootLayout({
   children,

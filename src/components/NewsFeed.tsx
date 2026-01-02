@@ -1,9 +1,8 @@
 "use client";
 import { useState, useEffect } from "react";
 import NewsModal from "./NewsModal";
-import { supabaseBrowser } from "@/lib/supabase"; // Nota browser client!
+import { supabaseBrowser } from "@/lib/supabase";
 
-// ... (getBranding fallið helst óbreytt - afritaðu það úr gamla kóðanum eða láttu það vera ef það er þarna) ...
 const getBranding = (sourceName: string | undefined) => {
   const name = (sourceName || '').toLowerCase();
   if (name.includes('mbl')) return { bg: '#3b5e91', logo: '/mbl.png', scale: '80%' };
@@ -18,10 +17,9 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
   const [selectedArticle, setSelectedArticle] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Sækja fréttir í vafranum (Client-side fetch)
   useEffect(() => {
     const fetchNews = async () => {
-      console.log("Sæki nýjar fréttir...");
+      // console.log("Sæki nýjar fréttir...");
       const { data } = await supabaseBrowser
         .from('articles')
         .select('*, sources(name)')
@@ -29,32 +27,45 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
         .limit(50);
       
       if (data) {
-        setArticles(data);
+        setArticles(prev => {
+            // Ef engin breyting er á nýjustu fréttinni, sleppum uppfærslu (minnkar flökt)
+            if (prev.length > 0 && data.length > 0 && prev[0].id === data[0].id) return prev;
+            return data;
+        });
         setLoading(false);
       }
     };
 
+    // 1. Sækja strax í byrjun
     fetchNews();
     
-    // Setja upp "Realtime" hlustun (Ef ný frétt kemur, birtist hún strax!)
+    // 2. Realtime hlustun (Ef gagnagrunnurinn lætur vita)
     const channel = supabaseBrowser
       .channel('realtime-articles')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'articles' }, (payload) => {
-        console.log("Ný frétt kom!", payload);
-        fetchNews(); // Sækja aftur ef ný frétt kemur
+        console.log("Ný frétt kom (Realtime)!", payload);
+        fetchNews();
       })
       .subscribe();
 
-    return () => { supabaseBrowser.removeChannel(channel); };
+    // 3. Polling (Öryggisnet): Sækja á 60 sek fresti
+    const interval = setInterval(() => {
+      fetchNews();
+    }, 60000);
+
+    return () => { 
+      supabaseBrowser.removeChannel(channel); 
+      clearInterval(interval);
+    };
   }, []);
 
   if (loading) {
-    // Sýna Skeleton á meðan við sækjum
     return (
         <div style={{background: '#000', height: '100vh', width: '100%', padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end'}}>
-          <div style={{width: '100px', height: '16px', background: '#333', marginBottom: '16px', borderRadius: '4px'}}></div>
-          <div style={{width: '90%', height: '32px', background: '#333', marginBottom: '12px', borderRadius: '4px'}}></div>
-          <div style={{width: '70%', height: '32px', background: '#333', marginBottom: '40px', borderRadius: '4px'}}></div>
+          <style>{`@keyframes pulse { 0% { opacity: 0.3; } 50% { opacity: 0.6; } 100% { opacity: 0.3; } } .skeleton { background: #333; border-radius: 8px; animation: pulse 1.5s infinite ease-in-out; }`}</style>
+          <div className="skeleton" style={{width: '100px', height: '16px', marginBottom: '16px'}}></div>
+          <div className="skeleton" style={{width: '90%', height: '32px', marginBottom: '12px'}}></div>
+          <div className="skeleton" style={{width: '70%', height: '32px', marginBottom: '40px'}}></div>
         </div>
     );
   }
