@@ -72,10 +72,10 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
         background: 'linear-gradient(to bottom, rgba(0,0,0,0.6) 0%, transparent 100%)',
         pointerEvents: 'none'
       }}>
-        <button onClick={() => setActiveCategory('all')} style={catStyle(activeCategory === 'all')}>Allt</button>
-        <button onClick={() => setActiveCategory('innlent')} style={catStyle(activeCategory === 'innlent')}>Innlent</button>
-        <button onClick={() => setActiveCategory('erlent')} style={catStyle(activeCategory === 'erlent')}>Erlent</button>
-        <button onClick={() => setActiveCategory('sport')} style={catStyle(activeCategory === 'sport')}>Sport</button>
+        <button onClick={() => setActiveCategory('all')} style={catStyle(activeCategory === 'all')}>ALLT</button>
+        <button onClick={() => setActiveCategory('innlent')} style={catStyle(activeCategory === 'innlent')}>INNLENT</button>
+        <button onClick={() => setActiveCategory('erlent')} style={catStyle(activeCategory === 'erlent')}>ERLENT</button>
+        <button onClick={() => setActiveCategory('sport')} style={catStyle(activeCategory === 'sport')}>SPORT</button>
       </div>
 
       {/* FRÉTTIR */}

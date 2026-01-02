@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import { supabaseServer } from '@/lib/supabase';
 import OpenAI from 'openai';
 
-// Vercel stillingar (Jina er hratt, en 60s er öruggt)
+// Vercel stillingar
 export const maxDuration = 60; 
 export const dynamic = 'force-dynamic';
 
@@ -15,84 +15,93 @@ const RSS_FEEDS = [
   'https://www.dv.is/rss/',
 ];
 
-// --- AI Flokkari ---
-async function classifyArticle(title: string, excerpt: string) {
-  const lowerTitle = title.toLowerCase();
-  const sportWords = ['fótbolti', 'handbolti', 'körfubolti', 'liverpool', 'united', 'arsenal', 'deildin', 'mörk', 'landslið', 'valur', 'kr ', 'ka ', 'fh ', 'breiðablik', 'íþrótt', 'sport', 'leikur', 'marka'];
-  
-  if (sportWords.some(word => lowerTitle.includes(word))) return 'sport';
-
+// --- NÝTT: AI Hreinsun og Flokkun (Allt í einu!) ---
+async function processArticle(title: string, rawText: string) {
   try {
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
+    
+    // Styttum í 5000 stafi (í stað 15000) til að flýta fyrir og forðast timeout
+    const textSample = rawText.substring(0, 5000); 
+
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4o-mini", // Ódýrt og hratt
       messages: [
         {
           role: "system",
-          content: `Flokkaðu í: 'innlent', 'erlent', 'sport'. Skilaðu BARA einu orði.`
+          content: `Þú ert fréttaritari. Verkefni þitt er að hreinsa og flokka frétt.
+          
+          OUTPUT JSON snið:
+          {
+            "clean_text": "Hér kemur hreinn texti fréttarinnar (engin valmyndir, engir hlekkir, engar auglýsingar, bara kjötið).",
+            "category": "innlent" | "erlent" | "sport"
+          }
+
+          REGLUR FYRIR FLOKKUN:
+          1. SPORT: Íþróttir, fótbolti, handbolti, lið, leikir (líka erlent sport).
+          2. ERLENT: Gerist utan Íslands (nema það sé sport).
+          3. INNLENT: Allt annað.
+          `
         },
         {
           role: "user",
-          content: `Titill: ${title}\nTexti: ${excerpt.substring(0, 300)}`
+          content: `Titill: ${title}\n\nHrár texti:\n${textSample}`
         }
       ],
       temperature: 0.3,
+      response_format: { type: "json_object" } // Tryggir að við fáum JSON
     });
-    const category = response.choices[0].message.content?.trim().toLowerCase();
-    if (category?.includes('sport')) return 'sport';
-    if (category?.includes('erlent')) return 'erlent';
-    return 'innlent';
-  } catch (e) { return 'innlent'; }
+
+    const result = JSON.parse(response.choices[0].message.content || '{}');
+    
+    return {
+        text: result.clean_text || rawText, // Ef AI klikkar, notum hráa textann
+        category: result.category || 'innlent'
+    };
+
+  } catch (e) {
+    console.error("AI vinnsla mistókst:", e);
+    // Fallback: Skilum hráum texta og giskum á 'innlent'
+    return { text: rawText, category: 'innlent' };
+  }
 }
 
+// --- JINA READER ---
 async function fetchContentAndImage(url: string) {
-  console.log("------------------------------------------------");
-  console.log(`🔍 SKREF 1: Byrja að sækja fyrir: ${url}`);
-
+  console.log(`🔍 Sæki Jina: ${url}`);
   try {
-    const jinaUrl = `https://r.jina.ai/${url}`;
+    const res = await fetch(`https://r.jina.ai/${url}`);
     
-    // Köllum á Jina
-    const res = await fetch(jinaUrl);
-    
-    console.log(`📡 SKREF 2: Jina Status Code: ${res.status}`);
-
     if (!res.ok) {
-        console.error("❌ SKREF 2 FAIL: Jina svaraði með villu.");
+        console.error(`❌ Jina villa: ${res.status}`);
         return { text: null, image: null };
     }
     
     const markdown = await res.text();
-    console.log(`📄 SKREF 3: Fengum svar! Lengd: ${markdown.length} stafir.`);
-    console.log(`👀 Sýnishorn af byrjun:\n${markdown.substring(0, 200)}`);
-
-    if (markdown.includes("Title:") || markdown.includes("URL:")) {
-        console.log("✅ SKREF 3: Svarið lítur út eins og Jina Markdown.");
-    } else {
-        console.warn("⚠️ SKREF 3: Svarið lítur skrýtið út (ekki hefðbundið Jina).");
+    
+    if (!markdown || markdown.length < 100) {
+        console.warn("⚠️ Jina tómur texti");
+        return { text: null, image: null };
     }
 
-    // Vinnsla (mjög einfölduð til að útiloka villur í regex)
-    let text = markdown;
-    
-    // Fjarlægjum myndir (svo við sjáum textann betur)
-    text = text.replace(/!\[.*?\]\(.*?\)/g, '');
-    
-    // Tökum bara kjötið
-    if (text.length > 500) {
-        console.log("✅ SKREF 4: Textinn er nógu langur. Skila niðurstöðu.");
-        return { text: text, image: null }; // Skilum engri mynd í bili, bara texta
-    } else {
-        console.warn("⚠️ SKREF 4: Textinn er of stuttur eftir hreinsun.");
-        return { text: text, image: null };
-    }
+    // Finna mynd
+    const imageMatch = markdown.match(/!\[.*?\]\((https?:\/\/.*?(jpg|jpeg|png|webp).*?)\)/i);
+    let image = imageMatch ? imageMatch[1] : null;
+
+    // Hreinsa texta (gróflega fyrst, AI sér um fínpússun)
+    let text = markdown
+        .replace(/!\[.*?\]\(.*?\)/g, '') // Myndir burt
+        .replace(/\[.*?\]\(.*?\)/g, '$1') // Hlekkir -> Texti
+        .replace(/[#*`_]/g, '') // Tákn burt
+        .trim();
+
+    // Skilum max 5000 stöfum (til að spara pláss/tíma)
+    return { text: text.substring(0, 5000), image }; 
 
   } catch (error) {
-    console.error("❌ ALVARLEG VILLA:", error);
+    console.error("❌ Jina exception:", error);
     return { text: null, image: null };
   }
 }
-
 
 async function generateEmbedding(text: string) {
   try {
@@ -107,16 +116,8 @@ async function generateEmbedding(text: string) {
 
 export async function GET() {
   const supa = supabaseServer();
-  // Parser fyrir RSS
-  
   const parser = new Parser({
-    customFields: {
-      item: [
-        ['media:content', 'media'],
-        ['media:thumbnail', 'thumbnail'],
-        ['enclosure', 'enclosure'],
-      ]
-    },
+    customFields: { item: [['media:content', 'media'], ['media:thumbnail', 'thumbnail'], ['enclosure', 'enclosure']] },
   });
 
   let totalSaved = 0;
@@ -138,8 +139,9 @@ export async function GET() {
       }
 
       if (source) {
-        // Tökum 3 nýjustu
-        const items = feed.items?.slice(0, 3) || [];
+        // Tökum 1 frétt (til að spara tíma/pening)
+        const items = feed.items?.slice(0, 1) || [];
+        
         for (const item of items) {
           const url = item.link || '';
           if (!url) continue;
@@ -147,20 +149,19 @@ export async function GET() {
           const { data: existing } = await supa.from('articles').select('id').eq('url', url).maybeSingle();
           if (existing) continue;
 
-          // 1. Reyna RSS mynd fyrst (hraðast)
+          // 1. Reyna RSS mynd
           let imageUrl = null;
           if (item.media && item.media['$'] && item.media['$'].url) imageUrl = item.media['$'].url;
           else if (item.thumbnail && item.thumbnail['$'] && item.thumbnail['$'].url) imageUrl = item.thumbnail['$'].url;
           else if (item.enclosure && item.enclosure.url) imageUrl = item.enclosure.url;
 
-          // 2. Sækja efni með Jina AI
+          // 2. Sækja efni með Jina
           const scraped = await fetchContentAndImage(url);
-          let fullText = scraped.text;
           
-          // Ef engin RSS mynd, notum Jina myndina
           if (!imageUrl && scraped.image) imageUrl = scraped.image;
 
-          const category = await classifyArticle(item.title || '', fullText || item.contentSnippet || '');
+          // 3. AI Hreinsun og Flokkun (NÝTT!)
+          const processed = await processArticle(item.title || '', scraped.text || item.contentSnippet || '');
 
           const hash = crypto.createHash('md5').update(((item.title || '') + url).toLowerCase()).digest('hex');
 
@@ -168,20 +169,20 @@ export async function GET() {
             source_id: source.id,
             title: item.title,
             excerpt: (item.contentSnippet || '').substring(0, 300),
-            full_text: fullText,
+            full_text: processed.text, // Hreinn texti frá AI
             url: url,
             published_at: item.isoDate ? new Date(item.isoDate) : new Date(),
             language: 'is',
             image_url: imageUrl,
             hash: hash,
-            category: category
+            category: processed.category // Flokkur frá AI
           };
 
           const { data: saved, error } = await supa.from('articles').upsert(articleData, { onConflict: 'url' }).select().single();
           
           if (!error && saved) {
             totalSaved++;
-            const embedding = await generateEmbedding((item.title || '') + " " + (fullText || "").substring(0, 500));
+            const embedding = await generateEmbedding((item.title || '') + " " + (processed.text || "").substring(0, 500));
             if (embedding) await supa.from('article_embeddings').upsert({ article_id: saved.id, embedding });
           }
         }
