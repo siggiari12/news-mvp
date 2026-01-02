@@ -2,7 +2,7 @@ name: Sækja fréttir
 
 on:
   schedule:
-    - cron: '*/15 * * * *' # Á 15 mín fresti
+    - cron: '*/5 * * * *' # Breytt í 5 mínútur
   workflow_dispatch:      # Leyfa handvirka keyrslu
 
 jobs:
@@ -10,5 +10,5 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Sækja fréttir
-        # Hér er nýja slóðin þín:
+        # Mundu að setja þína slóð hér!
         run: curl -L https://news-mvp-five.vercel.app/api/ingest
