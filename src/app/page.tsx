@@ -1,10 +1,13 @@
 import { supabaseServer } from "@/lib/supabase";
-import NewsFeed from "@/components/NewsFeed"; // Sækjum nýja componentinn
+import NewsFeed from "@/components/NewsFeed";
 
+// Þetta segir Next.js: "Aldrei geyma þessa síðu í minni, sæktu alltaf nýtt!"
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export default async function Home() {
-  const supabase = supabaseServer();
+  // ...
+
 
   const { data: articles } = await supabase
     .from('articles')
