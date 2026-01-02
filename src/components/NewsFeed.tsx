@@ -75,7 +75,7 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
         <button onClick={() => setActiveCategory('all')} style={catStyle(activeCategory === 'all')}>ALLT</button>
         <button onClick={() => setActiveCategory('innlent')} style={catStyle(activeCategory === 'innlent')}>INNLENT</button>
         <button onClick={() => setActiveCategory('erlent')} style={catStyle(activeCategory === 'erlent')}>ERLENT</button>
-        <button onClick={() => setActiveCategory('sport')} style={catStyle(activeCategory === 'sport')}>SPORT</button>
+        <button onClick={() => setActiveCategory('sport')} style={catStyle(activeCategory === 'sport')}>ÍÞRÓTTIR</button>
       </div>
 
       {/* FRÉTTIR */}
