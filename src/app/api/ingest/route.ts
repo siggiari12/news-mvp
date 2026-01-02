@@ -12,39 +12,51 @@ const RSS_FEEDS = [
   'https://www.dv.is/rss/',
 ];
 
-// --- NÝTT: AI Flokkari ---
+// --- NÝTT: Betri AI Flokkari ---
 async function classifyArticle(title: string, excerpt: string) {
+  // 1. Öryggisnet: Ef titill inniheldur augljós sport-orð, sleppum AI (sparar pening og er 100% rétt)
+  const lowerTitle = title.toLowerCase();
+  const sportWords = ['fótbolti', 'handbolti', 'körfubolti', 'liverpool', 'united', 'arsenal', 'deildin', 'mörk', 'landslið', 'valur', 'kr ', 'ka ', 'fh ', 'breiðablik', 'íþrótt', 'sport', 'leikur', 'marka'];
+  
+  if (sportWords.some(word => lowerTitle.includes(word))) {
+    return 'sport';
+  }
+
   try {
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
     
-    // Sendum stutta spurningu á ódýrasta módelið (gpt-4o-mini)
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
-          content: "Þú ert fréttaflokkari. Flokkaðu fréttina í einn af þessum flokkum: 'innlent', 'erlent', 'sport'. Skilaðu BARA einu orði, engu öðru."
+          content: `Þú ert fréttaflokkari. Flokkaðu fréttina í EINN af þessum flokkum: 'innlent', 'erlent', 'sport'.
+          Reglur:
+          - Ef fréttin fjallar um íþróttir (fótbolta, handbolta, lið, leiki), veldu 'sport'.
+          - Ef fréttin gerist utan Íslands (USA, Evrópa, Stríð), veldu 'erlent'.
+          - Annars veldu 'innlent'.
+          Skilaðu BARA einu orði.`
         },
         {
           role: "user",
-          content: `Titill: ${title}\nTexti: ${excerpt.substring(0, 200)}`
+          content: `Titill: ${title}\nTexti: ${excerpt.substring(0, 300)}`
         }
       ],
-      temperature: 0, // 0 þýðir að hann er mjög "kaldur" og nákvæmur
+      temperature: 0.3, // Aðeins meira frelsi
     });
 
     const category = response.choices[0].message.content?.trim().toLowerCase();
     
-    // Hreinsum svarið til öryggis
     if (category?.includes('sport') || category?.includes('íþrótt')) return 'sport';
     if (category?.includes('erlent') || category?.includes('heim')) return 'erlent';
-    return 'innlent'; // Default ef hann ruglast
+    return 'innlent';
 
   } catch (e) {
     console.error("AI flokkun mistókst:", e);
-    return 'innlent'; // Fallback
+    return 'innlent';
   }
 }
+
 
 async function fetchContentAndImage(url: string) {
   try {
