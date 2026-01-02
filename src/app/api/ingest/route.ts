@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import Parser from 'rss-parser';
 import crypto from 'crypto';
 import { supabaseServer } from '@/lib/supabase';
-import * as cheerio from 'cheerio'; // Nýi létti pakkinn!
+import * as cheerio from 'cheerio';
 import OpenAI from 'openai';
 
 const RSS_FEEDS = [
@@ -11,6 +11,40 @@ const RSS_FEEDS = [
   'https://www.visir.is/rss/allt',
   'https://www.dv.is/rss/',
 ];
+
+// --- NÝTT: AI Flokkari ---
+async function classifyArticle(title: string, excerpt: string) {
+  try {
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
+    
+    // Sendum stutta spurningu á ódýrasta módelið (gpt-4o-mini)
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: "Þú ert fréttaflokkari. Flokkaðu fréttina í einn af þessum flokkum: 'innlent', 'erlent', 'sport'. Skilaðu BARA einu orði, engu öðru."
+        },
+        {
+          role: "user",
+          content: `Titill: ${title}\nTexti: ${excerpt.substring(0, 200)}`
+        }
+      ],
+      temperature: 0, // 0 þýðir að hann er mjög "kaldur" og nákvæmur
+    });
+
+    const category = response.choices[0].message.content?.trim().toLowerCase();
+    
+    // Hreinsum svarið til öryggis
+    if (category?.includes('sport') || category?.includes('íþrótt')) return 'sport';
+    if (category?.includes('erlent') || category?.includes('heim')) return 'erlent';
+    return 'innlent'; // Default ef hann ruglast
+
+  } catch (e) {
+    console.error("AI flokkun mistókst:", e);
+    return 'innlent'; // Fallback
+  }
+}
 
 async function fetchContentAndImage(url: string) {
   try {
@@ -23,25 +57,16 @@ async function fetchContentAndImage(url: string) {
     if (!res.ok) return { text: null, image: null };
     
     const html = await res.text();
-    // Hlaða HTML inn í Cheerio
     const $ = cheerio.load(html);
     
-    // 1. Sækja texta (Finnum allar málsgreinar <p>)
-    // Við reynum að finna aðal-efnið fyrst til að sleppa auglýsingum
     let textContainer = $('article, .article-body, .main-content, .content, #main');
-    if (textContainer.length === 0) textContainer = $('body'); // Fallback
+    if (textContainer.length === 0) textContainer = $('body');
     
-    // Söfnum saman textanum úr öllum <p> tögum
     const text = textContainer.find('p').map((i, el) => $(el).text()).get().join('\n\n');
 
     let image: string | null | undefined = null;
-
-    // 2. Finna mynd (Cheerio leiðin)
-    
-    // A. Open Graph
     image = $('meta[property="og:image"]').attr('content');
 
-    // B. JSON-LD (aðeins flóknara í Cheerio en virkar)
     if (!image) {
       $('script[type="application/ld+json"]').each((i, el) => {
         try {
@@ -51,7 +76,6 @@ async function fetchContentAndImage(url: string) {
       });
     }
 
-    // C. MBL Nuclear Search (Regex virkar alltaf á hráa HTMLið)
     if (!image && url.includes('mbl.is')) {
         const matches = html.match(/https?:\\?\/\\?\/[^"'\s]*arvakur[^"'\s]*frimg[^"'\s]*\.jpg/gi);
         if (matches && matches.length > 0) {
@@ -59,17 +83,15 @@ async function fetchContentAndImage(url: string) {
         }
     }
 
-    // D. Fallback (leita að img tögum)
     if (!image) {
       $('img').each((i, el) => {
         const src = $(el).attr('src');
         if (src && src.match(/\.(jpg|jpeg|png|webp)/i) && !src.includes('logo') && !src.includes('icon')) {
-           if (!image) image = src; // Taka fyrstu mynd
+           if (!image) image = src;
         }
       });
     }
 
-    // --- LAGA SLÓÐIR ---
     if (image) {
       image = image.trim();
       if (image.startsWith('//')) image = 'https:' + image;
@@ -123,7 +145,8 @@ export async function GET() {
       }
 
       if (source) {
-        const itemsToProcess = feed.items?.slice(0, 5) || [];
+        // Tökum aðeins færri fréttir (3 í stað 5) til að spara AI tíma/kostnað
+        const itemsToProcess = feed.items?.slice(0, 3) || [];
 
         for (const item of itemsToProcess) {
           const url = item.link || '';
@@ -132,7 +155,8 @@ export async function GET() {
           const title = (item.title || '').trim();
           const { data: existing } = await supa.from('articles').select('id, image_url').eq('url', url).maybeSingle();
           
-          if (existing && existing.image_url) continue;
+          // Ef fréttin er til, sleppum við henni (svo við borgum ekki fyrir AI aftur)
+          if (existing) continue;
 
           let imageUrl = null;
           if (item.media && item.media['$'] && item.media['$'].url) imageUrl = item.media['$'].url;
@@ -143,6 +167,9 @@ export async function GET() {
           fullText = scraped.text;
           
           if (!imageUrl && scraped.image) imageUrl = scraped.image;
+
+          // --- NÝTT: AI Flokkun ---
+          const category = await classifyArticle(title, fullText || item.contentSnippet || '');
 
           const hash = crypto.createHash('md5').update((title + url).toLowerCase()).digest('hex');
 
@@ -155,7 +182,8 @@ export async function GET() {
             published_at: item.isoDate ? new Date(item.isoDate) : new Date(),
             language: 'is',
             image_url: imageUrl,
-            hash: hash
+            hash: hash,
+            category: category // Vista flokkinn!
           };
 
           const { data: savedArticle, error } = await supa.from('articles').upsert(articleData, { onConflict: 'url' }).select().single();
