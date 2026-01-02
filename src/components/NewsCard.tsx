@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 const getBranding = (sourceName: string | undefined) => {
   const name = (sourceName || '').toLowerCase();
@@ -18,7 +18,29 @@ export default function NewsCard({ article }: { article: any }) {
   const [relatedArticles, setRelatedArticles] = useState<any[]>([]);
   const [loadingRelated, setLoadingRelated] = useState(false);
 
+// Til að fylgjast með sýnileika
+  const cardRef = useRef<HTMLElement>(null);
+
   const branding = getBranding(article.sources?.name);
+
+  // RESET LOGIC: Ef spjaldið fer af skjánum, loka því!
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        // Ef minna en 40% af spjaldinu sést, þá loka (reset)
+        if (!entry.isIntersecting || entry.intersectionRatio < 0.4) {
+          setExpanded(false);
+          // Við getum líka resettað flipann ef við viljum:
+          // setActiveTab('read'); 
+        }
+      },
+      { threshold: 0.4 } // Triggerar þegar 40% er sýnilegt/ósýnilegt
+    );
+
+    if (cardRef.current) observer.observe(cardRef.current);
+
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (expanded && activeTab === 'eli10' && !summary) fetchSummary();
@@ -53,7 +75,10 @@ export default function NewsCard({ article }: { article: any }) {
   };
 
   return (
-    <section className="news-card" style={{position: 'relative', overflow: 'hidden', height: '100vh', width: '100%'}}>
+    <section
+        ref={cardRef} // Tengjum observerinn hér
+        className="news-card" style={{position: 'relative', overflow: 'hidden', height: '100vh', width: '100%'}}
+    >
       
       {/* 1. BAKGRUNNUR */}
       <div className="bg-image" style={{
