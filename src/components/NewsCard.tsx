@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from "react";
 
 const getBranding = (sourceName: string | undefined) => {
   const name = (sourceName || '').toLowerCase();
-  if (name.includes('mbl')) return { bg: 'hsl(240deg 100% 23.53%)', logo: '/mbl.png', scale: '80%' };
+  if (name.includes('mbl')) return { bg: '#3b5e91', logo: '/mbl.png', scale: '80%' };
   if (name.includes('rúv') || name.includes('ruv')) return { bg: '#00477f', logo: 'https://upload.wikimedia.org/wikipedia/commons/6/63/R%C3%9AV_logo.svg', scale: '60%' };
   if (name.includes('vísir') || name.includes('visir')) return { bg: '#f4d100', logo: 'https://upload.wikimedia.org/wikipedia/commons/4/4c/V%C3%ADsir_logo.svg', scale: '60%' };
   if (name.includes('dv')) return { bg: '#d0021b', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/82/DV_logo.svg/512px-DV_logo.svg.png', scale: '60%' };
@@ -17,28 +17,21 @@ export default function NewsCard({ article }: { article: any }) {
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [relatedArticles, setRelatedArticles] = useState<any[]>([]);
   const [loadingRelated, setLoadingRelated] = useState(false);
-
-// Til að fylgjast með sýnileika
+  
   const cardRef = useRef<HTMLElement>(null);
-
   const branding = getBranding(article.sources?.name);
 
-  // RESET LOGIC: Ef spjaldið fer af skjánum, loka því!
   useEffect(() => {
     const observer = new IntersectionObserver(
       ([entry]) => {
-        // Ef minna en 40% af spjaldinu sést, þá loka (reset)
         if (!entry.isIntersecting || entry.intersectionRatio < 0.4) {
           setExpanded(false);
-          // Við getum líka resettað flipann ef við viljum:
-          // setActiveTab('read'); 
         }
       },
-      { threshold: 0.4 } // Triggerar þegar 40% er sýnilegt/ósýnilegt
+      { threshold: 0.4 }
     );
 
     if (cardRef.current) observer.observe(cardRef.current);
-
     return () => observer.disconnect();
   }, []);
 
@@ -75,9 +68,10 @@ export default function NewsCard({ article }: { article: any }) {
   };
 
   return (
-    <section
-        ref={cardRef} // Tengjum observerinn hér
-        className="news-card" style={{position: 'relative', overflow: 'hidden', height: '100vh', width: '100%'}}
+    <section 
+      ref={cardRef}
+      className="news-card" 
+      style={{position: 'relative', overflow: 'hidden', height: '100vh', width: '100%'}}
     >
       
       {/* 1. BAKGRUNNUR */}
@@ -85,7 +79,7 @@ export default function NewsCard({ article }: { article: any }) {
         background: branding.bg,
         zIndex: 0, 
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        filter: expanded ? 'brightness(0.2) blur(10px)' : 'none',
+        filter: expanded ? 'brightness(0.4) blur(15px)' : 'none',
         transition: 'all 0.5s ease'
       }}>
           {branding.logo && (
@@ -98,7 +92,7 @@ export default function NewsCard({ article }: { article: any }) {
       {article.image_url && (
         <img src={article.image_url} alt="" className="bg-image" style={{ 
           zIndex: 1, 
-          filter: expanded ? 'brightness(0.2) blur(10px)' : 'none',
+          filter: expanded ? 'brightness(0.4) blur(15px)' : 'none',
           transition: 'all 0.5s ease'
         }} onError={(e) => (e.target as HTMLElement).style.display = 'none'} />
       )}
@@ -115,14 +109,13 @@ export default function NewsCard({ article }: { article: any }) {
         }}
       ></div>
 
-      {/* 3. FORSÍÐA (Texti) */}
+      {/* 3. FORSÍÐA */}
       <div 
         className="content" 
         style={{
           zIndex: 3, 
           position: 'absolute', bottom: 0, left: 0, width: '100%',
           padding: '24px',
-          // Lyftum textanum upp (160px frá botni)
           paddingBottom: '160px', 
           opacity: expanded ? 0 : 1,
           pointerEvents: expanded ? 'none' : 'auto',
@@ -137,7 +130,7 @@ export default function NewsCard({ article }: { article: any }) {
         <p className="excerpt" onClick={() => setExpanded(true)}>{article.excerpt}</p>
       </div>
 
-      {/* 3b. ÖRIN (100px frá botni) */}
+      {/* 3b. ÖRIN */}
       <div 
         onClick={() => setExpanded(true)} 
         style={{
@@ -155,7 +148,7 @@ export default function NewsCard({ article }: { article: any }) {
         <span style={{fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '2px', fontWeight: 'bold', marginTop: '5px'}}>Sjá meira</span>
       </div>
 
-      {/* 4. BAKSÍÐA (Expanded) */}
+      {/* 4. BAKSÍÐA */}
       <div style={{
         position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
         zIndex: 4,
@@ -198,23 +191,20 @@ export default function NewsCard({ article }: { article: any }) {
              <div>{relatedArticles.map(rel => <div key={rel.id} style={{marginBottom:'15px', fontWeight:'bold'}}>{rel.title}</div>)}</div>
            )}
            
-            {/* LOKA TAKKINN (Ör niður) */}
            <div 
              onClick={() => setExpanded(false)} 
              style={{
                 marginTop: '50px', 
-                marginBottom: '80px', // Passlegt pláss neðst
+                marginBottom: '80px', 
                 display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'pointer',
                 opacity: 0.8
              }}
            >
              <span style={{fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '2px', fontWeight: 'bold', marginBottom: '5px'}}>Loka</span>
-             {/* Ör sem bendir niður */}
              <svg className="arrow-bounce" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                <path d="M6 9l6 6 6-6"/> 
              </svg>
            </div>
-
         </div>
       </div>
 

@@ -60,35 +60,28 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
   }
 
   return (
-    <main className="feed-container">
+    <main key={activeCategory} className="feed-container">
       
-      {/* --- HREINIR FLIPAR --- */}
+      {/* FLIPAR */}
       <div style={{
         position: 'fixed', top: 0, left: 0, width: '100%', 
         zIndex: 100, 
-        // Færum þá aðeins neðar (meira pláss frá toppnum)
-        padding: '20px 0', 
+        padding: '20px 0',
         paddingTop: 'calc(20px + env(safe-area-inset-top))',
-        display: 'flex', justifyContent: 'center', 
-        gap: '15px', // Minna bil (var 25px)
-        // Enginn gradient, bara smá skuggi til að textinn sjáist
-        background: 'linear-gradient(to bottom, rgba(0,0,0,0.6) 0%, transparent 100%)', 
-        pointerEvents: 'none' // Svo maður geti smellt í gegnum bakgrunninn (en takkarnir verða pointer-events: auto)
+        display: 'flex', justifyContent: 'center', gap: '15px',
+        background: 'linear-gradient(to bottom, rgba(0,0,0,0.6) 0%, transparent 100%)',
+        pointerEvents: 'none'
       }}>
-        {/* Takkarnir þurfa pointer-events: auto því gámurinn er none */}
         <button onClick={() => setActiveCategory('all')} style={catStyle(activeCategory === 'all')}>Allt</button>
         <button onClick={() => setActiveCategory('innlent')} style={catStyle(activeCategory === 'innlent')}>Innlent</button>
         <button onClick={() => setActiveCategory('erlent')} style={catStyle(activeCategory === 'erlent')}>Erlent</button>
         <button onClick={() => setActiveCategory('sport')} style={catStyle(activeCategory === 'sport')}>Sport</button>
       </div>
 
-
-      {/* Lykillinn (key) hér að neðan neyðir React til að endurhlaða listanum þegar flokkur breytist */}
-      <div key={activeCategory} style={{width: '100%'}}>
-        {filteredArticles.map((article) => (
-          <NewsCard key={article.id} article={article} />
-        ))}
-      </div>
+      {/* FRÉTTIR */}
+      {filteredArticles.map((article) => (
+        <NewsCard key={article.id} article={article} />
+      ))}
       
       {filteredArticles.length === 0 && (
          <div className="news-card" style={{justifyContent: 'center', alignItems: 'center'}}>
@@ -101,18 +94,17 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
 
 function catStyle(isActive: boolean) {
   return {
-    pointerEvents: 'auto' as const, // <-- ÞETTA ER LYKILINN!
+    pointerEvents: 'auto' as const,
     background: 'none', border: 'none', 
     color: isActive ? '#ffffff' : 'rgba(255,255,255,0.6)', 
-    fontWeight: isActive ? '700' : '500', 
+    fontWeight: isActive ? '600' : '400', 
     fontSize: '0.9rem', 
-    textTransform: 'uppercase' as const, 
-    textShadow: '0 2px 4px rgba(0,0,0,0.8)',
+    textTransform: 'capitalize' as const, 
+    textShadow: '0 1px 3px rgba(0,0,0,0.8)',
     cursor: 'pointer',
     position: 'relative' as const,
     transition: 'all 0.2s',
-    borderBottom: isActive ? '2px solid white' : '2px solid transparent',
-    paddingBottom: '4px'
+    borderBottom: isActive ? '1px solid white' : '1px solid transparent',
+    paddingBottom: '2px'
   };
 }
-

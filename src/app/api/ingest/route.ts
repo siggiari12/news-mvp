@@ -3,9 +3,8 @@ import Parser from 'rss-parser';
 import crypto from 'crypto';
 import { supabaseServer } from '@/lib/supabase';
 import OpenAI from 'openai';
-import puppeteer from 'puppeteer-core';
-import chromium from '@sparticuz/chromium';
 
+// Vercel stillingar (Jina er hratt, en 60s er öruggt)
 export const maxDuration = 60; 
 export const dynamic = 'force-dynamic';
 
@@ -21,24 +20,16 @@ async function classifyArticle(title: string, excerpt: string) {
   const lowerTitle = title.toLowerCase();
   const sportWords = ['fótbolti', 'handbolti', 'körfubolti', 'liverpool', 'united', 'arsenal', 'deildin', 'mörk', 'landslið', 'valur', 'kr ', 'ka ', 'fh ', 'breiðablik', 'íþrótt', 'sport', 'leikur', 'marka'];
   
-  if (sportWords.some(word => lowerTitle.includes(word))) {
-    return 'sport';
-  }
+  if (sportWords.some(word => lowerTitle.includes(word))) return 'sport';
 
   try {
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
-    
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
-          content: `Þú ert fréttaflokkari. Flokkaðu fréttina í EINN af þessum flokkum: 'innlent', 'erlent', 'sport'.
-          FORGANGSRÖÐUN:
-          1. SPORT: Ef fréttin fjallar um íþróttir, þá er hún ALLTAF 'sport'.
-          2. ERLENT: Ef hún er ekki sport, en gerist utan Íslands.
-          3. INNLENT: Allt annað.
-          Skilaðu BARA einu orði.`
+          content: `Flokkaðu í: 'innlent', 'erlent', 'sport'. Skilaðu BARA einu orði.`
         },
         {
           role: "user",
@@ -47,78 +38,68 @@ async function classifyArticle(title: string, excerpt: string) {
       ],
       temperature: 0.3,
     });
-
     const category = response.choices[0].message.content?.trim().toLowerCase();
-    
-    if (category?.includes('sport') || category?.includes('íþrótt')) return 'sport';
-    if (category?.includes('erlent') || category?.includes('heim')) return 'erlent';
+    if (category?.includes('sport')) return 'sport';
+    if (category?.includes('erlent')) return 'erlent';
     return 'innlent';
-
-  } catch (e) {
-    console.error("AI flokkun mistókst:", e);
-    return 'innlent';
-  }
+  } catch (e) { return 'innlent'; }
 }
 
-// --- Puppeteer Scraper ---
 async function fetchContentAndImage(url: string) {
-  let browser = null;
+  console.log("------------------------------------------------");
+  console.log(`🔍 SKREF 1: Byrja að sækja fyrir: ${url}`);
+
   try {
-    chromium.setGraphicsMode = false;
+    const jinaUrl = `https://r.jina.ai/${url}`;
     
-    // Hér er lagfæringin: Setjum stillingar beint inn
-    browser = await puppeteer.launch({
-      args: chromium.args,
-      defaultViewport: { width: 1920, height: 1080 },
-      executablePath: await chromium.executablePath(),
-      headless: true, // eða "new"
-    });
-
-    const page = await browser.newPage();
+    // Köllum á Jina
+    const res = await fetch(jinaUrl);
     
-    // Timeout 20 sekúndur
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 20000 });
+    console.log(`📡 SKREF 2: Jina Status Code: ${res.status}`);
 
-    const data = await page.evaluate(() => {
-      const img = document.querySelector('meta[property="og:image"]')?.getAttribute('content');
-      
-      const content = document.querySelector('article, .story-body, .main-content, .content, [data-testid="article-body"]');
-      let text = "";
-      
-      if (content) {
-        text = content.textContent || ""; // Nota textContent (öruggara en innerText)
-      } else {
-        const paras = Array.from(document.querySelectorAll('p'));
-        text = paras
-          .filter(p => (p.textContent || "").length > 50)
-          .map(p => p.textContent || "")
-          .join('\n\n');
-      }
-      
-      return { text, img };
-    });
-
-    await browser.close();
+    if (!res.ok) {
+        console.error("❌ SKREF 2 FAIL: Jina svaraði með villu.");
+        return { text: null, image: null };
+    }
     
-    // Hreinsa textann
-    let cleanedText = data.text ? data.text.replace(/\s+/g, ' ').trim() : null;
+    const markdown = await res.text();
+    console.log(`📄 SKREF 3: Fengum svar! Lengd: ${markdown.length} stafir.`);
+    console.log(`👀 Sýnishorn af byrjun:\n${markdown.substring(0, 200)}`);
 
-    return { text: cleanedText, image: data.img || null };
+    if (markdown.includes("Title:") || markdown.includes("URL:")) {
+        console.log("✅ SKREF 3: Svarið lítur út eins og Jina Markdown.");
+    } else {
+        console.warn("⚠️ SKREF 3: Svarið lítur skrýtið út (ekki hefðbundið Jina).");
+    }
+
+    // Vinnsla (mjög einfölduð til að útiloka villur í regex)
+    let text = markdown;
+    
+    // Fjarlægjum myndir (svo við sjáum textann betur)
+    text = text.replace(/!\[.*?\]\(.*?\)/g, '');
+    
+    // Tökum bara kjötið
+    if (text.length > 500) {
+        console.log("✅ SKREF 4: Textinn er nógu langur. Skila niðurstöðu.");
+        return { text: text, image: null }; // Skilum engri mynd í bili, bara texta
+    } else {
+        console.warn("⚠️ SKREF 4: Textinn er of stuttur eftir hreinsun.");
+        return { text: text, image: null };
+    }
 
   } catch (error) {
-    console.error(`Puppeteer mistókst á ${url}:`, error);
-    if (browser) await browser.close();
+    console.error("❌ ALVARLEG VILLA:", error);
     return { text: null, image: null };
   }
 }
 
+
 async function generateEmbedding(text: string) {
   try {
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
-    const cleanText = text.replace(/\n/g, ' ').substring(0, 8000);
     const response = await openai.embeddings.create({
       model: "text-embedding-3-small",
-      input: cleanText,
+      input: text.replace(/\n/g, ' ').substring(0, 8000),
     });
     return response.data[0].embedding;
   } catch (e) { return null; }
@@ -126,8 +107,16 @@ async function generateEmbedding(text: string) {
 
 export async function GET() {
   const supa = supabaseServer();
+  // Parser fyrir RSS
+  
   const parser = new Parser({
-    customFields: { item: [['media:content', 'media'], ['content:encoded', 'contentEncoded']] },
+    customFields: {
+      item: [
+        ['media:content', 'media'],
+        ['media:thumbnail', 'thumbnail'],
+        ['enclosure', 'enclosure'],
+      ]
+    },
   });
 
   let totalSaved = 0;
@@ -137,12 +126,12 @@ export async function GET() {
       let feed;
       try { feed = await parser.parseURL(feedUrl); } catch (e) { continue; }
 
-      let sourceName = feed.title || feedUrl;
-      if (sourceName === 'Allar fréttir') sourceName = 'Vísir';
-      if (sourceName.includes('mbl.is')) sourceName = 'MBL';
+      let sourceName = feed.title || 'Fréttir';
+      if (feedUrl.includes('mbl')) sourceName = 'MBL';
+      if (feedUrl.includes('visir')) sourceName = 'Vísir';
+      if (feedUrl.includes('dv')) sourceName = 'DV';
 
       let { data: source } = await supa.from('sources').select('id').eq('rss_url', feedUrl).maybeSingle();
-
       if (!source) {
         const { data: inserted } = await supa.from('sources').insert({ name: sourceName, rss_url: feedUrl }).select().single();
         source = inserted;
@@ -150,34 +139,35 @@ export async function GET() {
 
       if (source) {
         // Tökum 3 nýjustu
-        const itemsToProcess = feed.items?.slice(0, 3) || [];
-
-        for (const item of itemsToProcess) {
+        const items = feed.items?.slice(0, 3) || [];
+        for (const item of items) {
           const url = item.link || '';
           if (!url) continue;
           
-          const title = (item.title || '').trim();
           const { data: existing } = await supa.from('articles').select('id').eq('url', url).maybeSingle();
-          
           if (existing) continue;
 
+          // 1. Reyna RSS mynd fyrst (hraðast)
           let imageUrl = null;
           if (item.media && item.media['$'] && item.media['$'].url) imageUrl = item.media['$'].url;
+          else if (item.thumbnail && item.thumbnail['$'] && item.thumbnail['$'].url) imageUrl = item.thumbnail['$'].url;
           else if (item.enclosure && item.enclosure.url) imageUrl = item.enclosure.url;
 
-          // Puppeteer sækir efnið
+          // 2. Sækja efni með Jina AI
           const scraped = await fetchContentAndImage(url);
           let fullText = scraped.text;
+          
+          // Ef engin RSS mynd, notum Jina myndina
           if (!imageUrl && scraped.image) imageUrl = scraped.image;
 
-          const category = await classifyArticle(title, fullText || item.contentSnippet || '');
+          const category = await classifyArticle(item.title || '', fullText || item.contentSnippet || '');
 
-          const hash = crypto.createHash('md5').update((title + url).toLowerCase()).digest('hex');
+          const hash = crypto.createHash('md5').update(((item.title || '') + url).toLowerCase()).digest('hex');
 
           const articleData = {
             source_id: source.id,
-            title: title,
-            excerpt: (item.contentSnippet || item.content || '').trim().substring(0, 300),
+            title: item.title,
+            excerpt: (item.contentSnippet || '').substring(0, 300),
             full_text: fullText,
             url: url,
             published_at: item.isoDate ? new Date(item.isoDate) : new Date(),
@@ -187,24 +177,18 @@ export async function GET() {
             category: category
           };
 
-          const { data: savedArticle, error } = await supa.from('articles').upsert(articleData, { onConflict: 'url' }).select().single();
+          const { data: saved, error } = await supa.from('articles').upsert(articleData, { onConflict: 'url' }).select().single();
           
-          if (!error && savedArticle) {
+          if (!error && saved) {
             totalSaved++;
-            const textForVector = title + " " + (fullText || "").substring(0, 500);
-            const embedding = await generateEmbedding(textForVector);
-            if (embedding) {
-               await supa.from('article_embeddings').upsert({ article_id: savedArticle.id, embedding: embedding });
-            }
+            const embedding = await generateEmbedding((item.title || '') + " " + (fullText || "").substring(0, 500));
+            if (embedding) await supa.from('article_embeddings').upsert({ article_id: saved.id, embedding });
           }
         }
       }
     }
-    
-    return NextResponse.json({ success: true, message: `Vann úr ${totalSaved} fréttum.` });
-
+    return NextResponse.json({ success: true, count: totalSaved });
   } catch (error: any) {
-    console.error("Ingest Error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
