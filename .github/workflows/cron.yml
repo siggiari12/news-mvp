@@ -2,14 +2,13 @@ name: Sækja fréttir
 
 on:
   schedule:
-    - cron: '*/15 * * * *' # Keyra á 15 mín fresti
+    - cron: '*/15 * * * *' # Á 15 mín fresti
   workflow_dispatch:      # Leyfa handvirka keyrslu
 
 jobs:
-  wake-up:
+  cron-job:
     runs-on: ubuntu-latest
     steps:
-      - name: Kalla á API
-        run: |
-          echo "Kalla á Ingest..."
-          curl -v -L https://news-mvp.vercel.app/api/ingest
+      - name: Sækja fréttir
+        # Hér er nýja slóðin þín:
+        run: curl -L https://news-mvp-five.vercel.app/api/ingest
