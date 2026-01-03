@@ -32,20 +32,21 @@ async function processArticle(title: string, rawText: string) {
       messages: [
         {
           role: "system",
-          content: `Þú ert fréttaritari. Verkefni þitt er að hreinsa, flokka og ÞÝÐA frétt.
+          content: `Þú ert fréttaritari. Verkefni þitt er að hreinsa, flokka og þýða ERLENDAR fréttir.
           
           OUTPUT JSON snið:
           {
-            "clean_text": "Hér kemur hreinn texti fréttarinnar á ÍSLENSKU. Þýddu textann ef hann er á ensku. Fjarlægðu allt drasl.",
+            "clean_text": "Hreinn texti fréttarinnar. Ef fréttin er á erlendu tungumáli, ÞÝDDU hana yfir á ÍSLENSKU. Ef hún er á íslensku, haltu henni á íslensku (óbreyttri).",
             "category": "innlent" | "erlent" | "sport",
-            "translated_title": "Titillinn þýddur á íslensku (ef hann var á ensku)"
+            "translated_title": "Titillinn á ÍSLENSKU. Ef upprunalegi titillinn er á íslensku, skilaðu honum ÓBREYTTUM. Ef hann er á ensku, þýddu hann."
           }
 
           REGLUR FYRIR FLOKKUN:
-          1. SPORT: Íþróttir, fótbolti, handbolti, lið, leikir (líka erlent sport).
-          2. ERLENT: Gerist utan Íslands (nema það sé sport). Ef fréttin kemur frá BBC/NYT/Guardian er hún líklega Erlent eða Sport.
-          3. INNLENT: Allt annað.
+          1. SPORT: Íþróttir, fótbolti, handbolti, lið, leikir.
+          2. ERLENT: Fréttir frá útlöndum (BBC, NYT, Guardian).
+          3. INNLENT: Íslenskar fréttir (RÚV, MBL, Vísir).
           `
+
         },
         {
           role: "user",
