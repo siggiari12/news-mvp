@@ -13,13 +13,13 @@ const RSS_FEEDS = [
   'https://www.mbl.is/feeds/innlent/',
   'https://www.visir.is/rss/allt',
   'https://www.dv.is/rss/',
-  // Erlendar fréttir (NÝTT!)
+  // Erlendar fréttir
   'http://feeds.bbci.co.uk/news/world/rss.xml', // BBC
   'https://rss.nytimes.com/services/xml/rss/nyt/World.xml', // NYT
   'https://www.theguardian.com/world/rss', // The Guardian
 ];
 
-// --- NÝTT: AI Hreinsun, Flokkun og ÞÝÐING ---
+// --- AI Hreinsun, Flokkun og ÞÝÐING ---
 async function processArticle(title: string, rawText: string) {
   try {
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
@@ -46,7 +46,6 @@ async function processArticle(title: string, rawText: string) {
           2. ERLENT: Fréttir frá útlöndum (BBC, NYT, Guardian).
           3. INNLENT: Íslenskar fréttir (RÚV, MBL, Vísir).
           `
-
         },
         {
           role: "user",
@@ -71,38 +70,54 @@ async function processArticle(title: string, rawText: string) {
   }
 }
 
-// --- JINA READER ---
+// --- JINA READER & MYNDAVINNSLA ---
 async function fetchContentAndImage(url: string) {
-  console.log(`🔍 Sæki Jina: ${url}`);
+  // Skilgreinum ogImage HÉR svo það sé aðgengilegt í öllu fallinu (líka catch)
+  let ogImage: string | null = null;
+
   try {
+    // 1. Reynum fyrst að finna og:image sjálf (hratt og öruggt)
+    try {
+        const rawRes = await fetch(url, { headers: { 'User-Agent': 'facebookexternalhit/1.1' } });
+        if (rawRes.ok) {
+            const html = await rawRes.text();
+            
+            // A. Venjulegt OG Image
+            const match = html.match(/<meta property="og:image" content="([^"]+)"/);
+            if (match) ogImage = match[1];
+
+            // B. MBL SÉRSTÖK LAUSN
+            if (url.includes('mbl.is')) {
+                const mblMatch = html.match(/https?:\\?\/\\?\/[^"'\s]*arvakur[^"'\s]*frimg[^"'\s]*\.jpg/gi);
+                if (mblMatch && mblMatch.length > 0) {
+                    ogImage = mblMatch[0].replace(/\\/g, '');
+                }
+            }
+        }
+    } catch (e) {
+      console.log("Gat ekki sótt raw HTML, held áfram í Jina...");
+    }
+
+    // 2. Jina fyrir texta
     const res = await fetch(`https://r.jina.ai/${url}`);
     
-    if (!res.ok) {
-        console.error(`❌ Jina villa: ${res.status}`);
-        return { text: null, image: null };
-    }
-    
+    // Ef Jina svarar ekki 200 OK, notum við bara myndina sem við fundum
+    if (!res.ok) return { text: null, image: ogImage };
+
     const markdown = await res.text();
     
-    if (!markdown || markdown.length < 100) {
-        console.warn("⚠️ Jina tómur texti");
-        return { text: null, image: null };
-    }
-
-    const imageMatch = markdown.match(/!\[.*?\]\((https?:\/\/.*?(jpg|jpeg|png|webp).*?)\)/i);
-    let image = imageMatch ? imageMatch[1] : null;
-
     let text = markdown
-        .replace(/!\[.*?\]\(.*?\)/g, '')
+        .replace(/!\[.*?\]\(.*?\)/g, '') 
         .replace(/\[.*?\]\(.*?\)/g, '$1')
         .replace(/[#*`_]/g, '')
         .trim();
 
-    return { text: text.substring(0, 5000), image }; 
+    // Skilum textanum og myndinni (ogImage hefur forgang því við treystum því betur)
+    return { text: text.substring(0, 5000), image: ogImage }; 
 
   } catch (error) {
-    console.error("❌ Jina exception:", error);
-    return { text: null, image: null };
+    // Ef allt fer í klessu (Jina timeout), skilum við samt myndinni ef hún fannst!
+    return { text: null, image: ogImage };
   }
 }
 
@@ -134,9 +149,9 @@ export async function GET() {
       if (feedUrl.includes('mbl')) sourceName = 'MBL';
       if (feedUrl.includes('visir')) sourceName = 'Vísir';
       if (feedUrl.includes('dv')) sourceName = 'DV';
-      if (feedUrl.includes('bbc')) sourceName = 'BBC'; // Nýtt
-      if (feedUrl.includes('nytimes')) sourceName = 'NYT'; // Nýtt
-      if (feedUrl.includes('guardian')) sourceName = 'The Guardian'; // Nýtt
+      if (feedUrl.includes('bbc')) sourceName = 'BBC';
+      if (feedUrl.includes('nytimes')) sourceName = 'NYT';
+      if (feedUrl.includes('guardian')) sourceName = 'The Guardian';
 
       let { data: source } = await supa.from('sources').select('id').eq('rss_url', feedUrl).maybeSingle();
       if (!source) {
@@ -161,9 +176,10 @@ export async function GET() {
           else if (item.thumbnail && item.thumbnail['$'] && item.thumbnail['$'].url) imageUrl = item.thumbnail['$'].url;
           else if (item.enclosure && item.enclosure.url) imageUrl = item.enclosure.url;
 
-          // 2. Sækja efni með Jina
+          // 2. Sækja efni með Jina (og sérstaka MBL fixinu)
           const scraped = await fetchContentAndImage(url);
           
+          // Ef RSS var ekki með mynd, notum við scrape myndina
           if (!imageUrl && scraped.image) imageUrl = scraped.image;
 
           // 3. AI Hreinsun, Flokkun og Þýðing
@@ -176,7 +192,7 @@ export async function GET() {
 
           const articleData = {
             source_id: source.id,
-            title: processed.title, // Þýddur titill!
+            title: processed.title, // Þýddur titill (ef við á)
             excerpt: (item.contentSnippet || '').substring(0, 300),
             full_text: textWithLink, 
             url: url,
