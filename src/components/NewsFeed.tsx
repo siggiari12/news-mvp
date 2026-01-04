@@ -4,22 +4,60 @@ import NewsCard from "./NewsCard";
 import { supabaseBrowser } from "@/lib/supabase";
 
 export default function NewsFeed({ initialArticles }: { initialArticles: any[] }) {
-  const [articles, setArticles] = useState<any[]>(initialArticles);
-  const [loading, setLoading] = useState(true);
+  const [articles, setArticles] = useState<any[]>(initialArticles || []);
+  const [loading, setLoading] = useState(initialArticles ? false : true);
   const [activeCategory, setActiveCategory] = useState<'all' | 'innlent' | 'erlent' | 'sport'>('all');
 
   useEffect(() => {
     const fetchNews = async () => {
+      // 1. Sækjum TOPICS (í staðinn fyrir articles)
       const { data } = await supabaseBrowser
-        .from('articles')
-        .select('*, sources(name)')
-        .order('published_at', { ascending: false })
+        .from('topics')
+        .select(`
+          *,
+          articles (
+            id, title, excerpt, full_text, url, published_at, image_url, sources(name)
+          )
+        `)
+        .order('updated_at', { ascending: false })
         .limit(100);
       
       if (data) {
+        // 2. Pökkum gögnunum fyrir NewsCard
+        const formattedArticles = data.map((topic: any) => {
+          // Finnum nýjustu fréttina í þessu topici
+          const mainArticle = topic.articles && topic.articles.length > 0 ? topic.articles[0] : null;
+          
+          // Debug: Sjáum hvort við finnum stórmál
+          if (topic.article_count > 1) {
+             console.log(`🔥 Fann stórmál: ${topic.title} (${topic.article_count} miðlar)`);
+          }
+
+          return {
+            id: topic.id,      // Topic ID
+            topic_id: topic.id,
+            title: topic.title,
+            // Ef engin samantekt, notum excerpt úr frétt
+            excerpt: topic.summary || mainArticle?.excerpt,
+            // Ef engin topic mynd, notum mynd úr frétt
+            image_url: topic.image_url || mainArticle?.image_url,
+            published_at: topic.updated_at,
+            article_count: topic.article_count, // Stjórnar eldinum
+            category: topic.category,
+            
+            // Upplýsingar um miðil
+            sources: mainArticle?.sources || { name: 'Samantekt' },
+            
+            // Fyrir staka frétt
+            full_text: mainArticle?.full_text,
+            url: mainArticle?.url
+          };
+        });
+
         setArticles(prev => {
-            if (prev.length > 0 && data.length > 0 && prev[0].id === data[0].id) return prev;
-            return data;
+            // Komum í veg fyrir flökt ef gögnin eru eins
+            if (prev.length > 0 && formattedArticles.length > 0 && prev[0].id === formattedArticles[0].id) return prev;
+            return formattedArticles;
         });
         setLoading(false);
       }
@@ -27,10 +65,11 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
 
     fetchNews();
     
+    // 3. Hlustum á breytingar í TOPICS töflunni
     const channel = supabaseBrowser
-      .channel('realtime-articles')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'articles' }, (payload) => {
-        console.log("Ný frétt kom!", payload);
+      .channel('realtime-topics')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'topics' }, (payload) => {
+        console.log("Uppfærsla á topics!", payload);
         fetchNews();
       })
       .subscribe();

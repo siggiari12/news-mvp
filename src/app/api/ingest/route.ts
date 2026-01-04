@@ -132,6 +132,53 @@ async function generateEmbedding(text: string) {
   } catch (e) { return null; }
 }
 
+// --- TOPIC LOGIC (Uppfært til að höndla null embedding) ---
+async function assignTopic(supa: any, articleId: string, title: string, embedding: any | null, imageUrl: string | null, category: string) {
+  let topicId = null;
+
+  // 1. Leita að svipuðum fréttum (BARA ef embedding er til)
+  if (embedding) {
+      // Við notum SQL fallið sem við bjuggum til í Supabase
+      const { data: similarArticles } = await supa.rpc('match_articles_for_topic', {
+        query_embedding: embedding,
+        match_threshold: 0.88, // 88% líkindi = Sama frétt
+        match_count: 1
+      });
+
+      if (similarArticles && similarArticles.length > 0) {
+        // Fannst svipuð frétt! Notum sama Topic ID
+        topicId = similarArticles[0].topic_id;
+        
+        // Uppfærum Topic (hækkum teljara og uppfærum tímastimpil)
+        const { data: topic } = await supa.from('topics').select('article_count').eq('id', topicId).single();
+        if (topic) {
+            await supa.from('topics').update({ 
+                article_count: topic.article_count + 1,
+                updated_at: new Date().toISOString()
+            }).eq('id', topicId);
+        }
+      }
+  }
+
+  // 2. Ef ekkert fannst (eða ekkert embedding), búum til NÝTT Topic
+  if (!topicId) {
+    const { data: newTopic, error } = await supa.from('topics').insert({
+      title: title, // Byrjum með titil fyrstu fréttarinnar
+      summary: null, 
+      category: category,
+      image_url: imageUrl,
+      article_count: 1
+    }).select().single();
+
+    if (newTopic) topicId = newTopic.id;
+  }
+
+  // 3. Tengjum fréttina við Topic-ið
+  if (topicId) {
+    await supa.from('articles').update({ topic_id: topicId }).eq('id', articleId);
+  }
+}
+
 export async function GET() {
   const supa = supabaseServer();
   const parser = new Parser({
@@ -207,8 +254,18 @@ export async function GET() {
           
           if (!error && saved) {
             totalSaved++;
+            
+            // Reynum að búa til embedding
             const embedding = await generateEmbedding((processed.title || '') + " " + (processed.text || "").substring(0, 500));
-            if (embedding) await supa.from('article_embeddings').upsert({ article_id: saved.id, embedding });
+            
+            if (embedding) {
+                // Vistum embedding
+                await supa.from('article_embeddings').upsert({ article_id: saved.id, embedding });
+            }
+
+            // --- KALLA Á TOPIC FALLIÐ (Fært út fyrir if(embedding)) ---
+            // Þetta tryggir að ALLAR fréttir fái topic, líka ef embedding vantar
+            await assignTopic(supa, saved.id, processed.title, embedding, imageUrl, processed.category);
           }
         }
       }

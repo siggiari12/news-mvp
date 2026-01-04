@@ -1,76 +1,57 @@
 import { NextResponse } from 'next/server';
-import { supabaseServer } from '@/lib/supabase';
 import OpenAI from 'openai';
+import { supabaseServer } from '@/lib/supabase';
 
-// Þetta verður að heita POST (með hástöfum) og má EKKI vera default
-export async function POST(request: Request) {
-  console.log("--- SUMMARIZE API KALLAÐ ---");
-  
-  if (!process.env.OPENAI_API_KEY) {
-    console.error("VILLA: Vantar OPENAI_API_KEY í .env.local");
-    return NextResponse.json({ error: 'Vantar API lykil' }, { status: 500 });
-  }
-
-  const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-  });
-
+export async function POST(req: Request) {
   try {
-    const body = await request.json();
-    const { articleId, textToSummarize } = body;
+    const { textToSummarize, topicId } = await req.json();
+    let finalPrompt = textToSummarize;
 
-    if (!articleId || !textToSummarize) {
-      return NextResponse.json({ error: 'Vantar gögn' }, { status: 400 });
+    // EF ÞETTA ER TOPIC: Sækjum allar fréttirnar og púsla saman
+    if (topicId) {
+        const supabase = supabaseServer();
+        const { data: articles } = await supabase
+            .from('articles')
+            .select('title, excerpt, sources(name)')
+            .eq('topic_id', topicId)
+            .limit(5); // Lesum max 5 fréttir til að spara token
+
+        if (articles && articles.length > 0) {
+            // Búum til einn stóran texta úr öllum fréttunum
+            finalPrompt = articles.map((a: any) => 
+                `Miðill: ${a.sources?.name}\nTitill: ${a.title}\nInngangur: ${a.excerpt}`
+            ).join('\n\n---\n\n');
+            
+            finalPrompt = `Hér eru nokkrar fréttir um sama málið frá mismunandi miðlum. Skrifaðu eina hnitmiðaða samantekt (max 3 málsgreinar) sem dregur saman aðalatriðin úr þeim öllum:\n\n${finalPrompt}`;
+        }
     }
 
-    const supa = supabaseServer();
+    if (!finalPrompt) return NextResponse.json({ error: 'Vantar texta' }, { status: 400 });
 
-    // 1. Gá hvort samantekt sé þegar til
-    const { data: existing } = await supa
-      .from('summaries')
-      .select('text')
-      .eq('article_id', articleId)
-      .eq('type', 'eli10')
-      .maybeSingle();
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
 
-    if (existing) {
-      console.log("Fann gamla samantekt.");
-      return NextResponse.json({ summary: existing.text, cached: true });
-    }
-
-    console.log("Tala við OpenAI...");
-    
-    // 2. Ef ekki til, spyrja OpenAI
-    const completion = await openai.chat.completions.create({
+    const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
-          content: "Þú ert hjálpsamur fréttaskýrandi. Verkefni þitt er að útskýra fréttir á einföldu íslensku máli, eins og þú sért að tala við 10 ára gamalt barn (ELI10). Notaðu emojis. Vertu stuttorður (max 3 setningar)."
+          content: "Þú ert snjall fréttaritari. Þitt hlutverk er að útskýra fréttir á einföldu máli (ELI5) á íslensku. Vertu hlutlaus og stuttorður."
         },
         {
           role: "user",
-          content: `Hér er fréttin: ${textToSummarize}. Útskýrðu hvað er að gerast.`
+          content: topicId 
+            ? finalPrompt // Nota sérstaka promptið fyrir topics
+            : `Endursegðu þessa frétt í stuttu máli (einföld íslenska):\n\n${finalPrompt}`
         }
       ],
+      temperature: 0.5,
+      max_tokens: 300,
     });
 
-    const aiResponse = completion.choices[0].message.content;
+    const summary = response.choices[0].message.content;
 
-    // 3. Vista svarið
-    if (aiResponse) {
-      await supa.from('summaries').insert({
-        article_id: articleId,
-        text: aiResponse,
-        type: 'eli10',
-        lang: 'is'
-      });
-    }
-
-    return NextResponse.json({ summary: aiResponse, cached: false });
-
+    return NextResponse.json({ summary });
   } catch (error: any) {
-    console.error('STÓRVILLA:', error);
-    return NextResponse.json({ error: 'Gat ekki búið til samantekt', details: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
