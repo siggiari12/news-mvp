@@ -137,13 +137,12 @@ async function generateEmbedding(text: string) {
   } catch (e) { return null; }
 }
 
-// --- TOPIC LOGIC (Uppfært með Clean Title og Lægri Þröskuld) ---
+// --- TOPIC LOGIC ---
 async function assignTopic(supa: any, articleId: string, title: string, embedding: any | null, imageUrl: string | null, category: string) {
   let topicId = null;
   const cleanedTitle = cleanTitle(title);
 
-  // 1. HEIMSKI TÉKKINN (Hreinsaður titill)
-  // Við sækjum nýjustu 50 topics og berum saman hreinsaða titla í JS
+  // 1. HEIMSKI TÉKKINN (Grípur augljós mál strax)
   const { data: recentTopics } = await supa
     .from('topics')
     .select('id, title')
@@ -153,19 +152,20 @@ async function assignTopic(supa: any, articleId: string, title: string, embeddin
   if (recentTopics) {
       for (const t of recentTopics) {
           if (cleanTitle(t.title) === cleanedTitle) {
-              console.log(`🎯 Fann nákvæman titil-match (hreinsaður)! "${title}" == "${t.title}"`);
+              console.log(`🎯 Fann nákvæman titil-match! "${title}"`);
               topicId = t.id;
               break;
           }
       }
   }
 
-  // 2. SNJALLI TÉKKINN (Vector Search)
-  // Keyrum þetta BARA ef við fundum ekki exact match
+  // 2. SNJALLI TÉKKINN (Vektor leit)
   if (!topicId && embedding) {
       const { data: similarArticles } = await supa.rpc('match_articles_for_topic', {
         query_embedding: embedding,
-        match_threshold: 0.6, // Lækkað í 0.6 til að vera mjög "inclusive"
+        // HÆKKAÐ Í 0.78: Verðum vandlátari!
+        // Ef það er undir 0.78, þá verður þetta NÝTT topic (en birtist í "Tengt")
+        match_threshold: 0.78, 
         match_count: 1
       });
 
@@ -175,9 +175,8 @@ async function assignTopic(supa: any, articleId: string, title: string, embeddin
       }
   }
 
-  // 3. UPPFÆRA EÐA BÚA TIL
+  // 3. UPDATE / INSERT
   if (topicId) {
-    // Uppfærum Topic (hækkum teljara og uppfærum tímastimpil)
     const { data: topic } = await supa.from('topics').select('article_count').eq('id', topicId).single();
     if (topic) {
         await supa.from('topics').update({ 
@@ -186,7 +185,6 @@ async function assignTopic(supa: any, articleId: string, title: string, embeddin
         }).eq('id', topicId);
     }
   } else {
-    // Búum til NÝTT Topic
     console.log(`🆕 Bý til nýtt topic: "${title}"`);
     const { data: newTopic } = await supa.from('topics').insert({
       title: title, 
@@ -195,11 +193,9 @@ async function assignTopic(supa: any, articleId: string, title: string, embeddin
       image_url: imageUrl,
       article_count: 1
     }).select().single();
-
     if (newTopic) topicId = newTopic.id;
   }
 
-  // 4. Tengjum fréttina við Topic-ið
   if (topicId) {
     await supa.from('articles').update({ topic_id: topicId }).eq('id', articleId);
   }
