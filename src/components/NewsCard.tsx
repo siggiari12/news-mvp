@@ -16,8 +16,14 @@ export default function NewsCard({ article }: { article: any }) {
 
   const [expanded, setExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<'read' | 'eli10' | 'related'>('read');
-  const [summary, setSummary] = useState<string | null>(null);
-  const [loadingSummary, setLoadingSummary] = useState(false);
+  
+  // --- NÝTT STATE FYRIR TVÆR TEGUNDIR AF TEXTA ---
+  const [unifiedStory, setUnifiedStory] = useState<string | null>(null); // Super-fréttin
+  const [eli10, setEli10] = useState<string | null>(null); // Einföldun
+  
+  const [loadingText, setLoadingText] = useState(false);
+  const [loadingEli10, setLoadingEli10] = useState(false);
+
   const [topicArticles, setTopicArticles] = useState<any[]>([]);
   const [loadingTopic, setLoadingTopic] = useState(false);
   const [relatedArticles, setRelatedArticles] = useState<any[]>([]);
@@ -51,17 +57,18 @@ export default function NewsCard({ article }: { article: any }) {
 
   useEffect(() => {
     if (expanded) {
-      // Stök frétt: Sækjum samantekt ef flipinn er valinn
-      if (!isTopic && activeTab === 'eli10' && !summary) fetchSummary();
-      
-      // Topic: Sækjum allt strax (fréttir + samantekt fyrir toppinn)
       if (isTopic) {
+          // 1. Sækja heimildir (fyrir lista neðst)
           if (topicArticles.length === 0) fetchTopicArticles();
-          if (!summary) fetchSummary(); 
+          // 2. Sækja Super-fréttina (fyrir aðal textann)
+          if (!unifiedStory) fetchSummary('full'); 
       }
       
-      // Stök frétt: Sækjum related
-      if (!isTopic && activeTab === 'related' && relatedArticles.length === 0) fetchRelated();
+      // Ef notandi fer í ELI10 flipann
+      if (activeTab === 'eli10' && !eli10) fetchSummary('eli10');
+      
+      // Ef notandi fer í Related flipann
+      if (activeTab === 'related' && relatedArticles.length === 0) fetchRelated();
     }
   }, [expanded, activeTab]);
 
@@ -77,12 +84,15 @@ export default function NewsCard({ article }: { article: any }) {
     setLoadingTopic(false);
   };
 
-  const fetchSummary = async () => {
-    setLoadingSummary(true);
+  // --- UPPFÆRT FETCH SUMMARY ---
+  const fetchSummary = async (type: 'full' | 'eli10') => {
+    if (type === 'full') setLoadingText(true);
+    else setLoadingEli10(true);
+
     try {
       const payload = isTopic 
-        ? { topicId: article.id } 
-        : { textToSummarize: article.full_text || (article.title + "\n" + article.excerpt) };
+        ? { topicId: article.id, type } 
+        : { textToSummarize: article.full_text || (article.title + "\n" + article.excerpt), type };
 
       const res = await fetch('/api/summarize', {
         method: 'POST',
@@ -90,8 +100,16 @@ export default function NewsCard({ article }: { article: any }) {
         body: JSON.stringify(payload)
       });
       const data = await res.json();
-      if (data.summary) setSummary(data.summary);
-    } catch (e) { console.error(e); } finally { setLoadingSummary(false); }
+      
+      if (data.summary) {
+          if (type === 'full') setUnifiedStory(data.summary);
+          else setEli10(data.summary);
+      }
+    } catch (e) { console.error(e); } 
+    finally { 
+        if (type === 'full') setLoadingText(false);
+        else setLoadingEli10(false);
+    }
   };
 
   const fetchRelated = async () => {
@@ -103,7 +121,12 @@ export default function NewsCard({ article }: { article: any }) {
         body: JSON.stringify({ articleId: article.id })
       });
       const data = await res.json();
-      setRelatedArticles(data.articles || []);
+      
+      // Síum út fréttir sem eru nú þegar í topicinu
+      const currentIds = topicArticles.map(a => a.id);
+      const filtered = (data.articles || []).filter((a: any) => !currentIds.includes(a.id) && a.id !== article.id);
+      
+      setRelatedArticles(filtered);
     } catch (e) { console.error(e); } finally { setLoadingRelated(false); }
   };
 
@@ -113,6 +136,7 @@ export default function NewsCard({ article }: { article: any }) {
       className="news-card" 
       style={{position: 'relative', overflow: 'hidden', height: '100vh', width: '100%'}}
     >
+      {/* BAKGRUNNUR & FORSÍÐA (Óbreytt) */}
       <div className="bg-image" style={{
         background: branding.bg, zIndex: 0, 
         display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -182,57 +206,57 @@ export default function NewsCard({ article }: { article: any }) {
            </button>
         </div>
 
-        {/* Flipar - FALINN EF TOPIC */}
+        {/* --- NÝJU FLIPARNIR --- */}
         <div style={{display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.2)', margin: '20px'}}>
           <button onClick={() => setActiveTab('read')} style={tabStyle(activeTab === 'read')}>
-              {isTopic ? '🗞️ Tímalína' : '📄 Fréttin'}
+              {isTopic ? '📰 Fréttin' : '📄 Fréttin'}
           </button>
           
-          {/* Birtist bara ef þetta er EKKI topic */}
-          {!isTopic && (
-            <button onClick={() => setActiveTab('eli10')} style={tabStyle(activeTab === 'eli10')}>🤖 Samantekt</button>
-          )}
+          {/* Núna sýnum við alltaf alla flipa */}
+          <button onClick={() => setActiveTab('eli10')} style={tabStyle(activeTab === 'eli10')}>
+              🤖 Samantekt
+          </button>
           
-          {!isTopic && (
-            <button onClick={() => setActiveTab('related')} style={tabStyle(activeTab === 'related')}>🔗 Tengt</button>
-          )}
+          <button onClick={() => setActiveTab('related')} style={tabStyle(activeTab === 'related')}>
+              🔗 Tengt
+          </button>
         </div>
 
         <div className="modal-content" style={{flex: 1, overflowY: 'auto', padding: '0 20px 100px 20px'}}>
+           
+           {/* FLIPI 1: FRÉTTIN (Super-story + Heimildir) */}
            {activeTab === 'read' && (
              <div style={{fontSize: '1.1rem', lineHeight: '1.8', color: '#eee', fontFamily: 'system-ui, sans-serif'}}>
                
                {isTopic ? (
-                   // --- TÍMALÍNA MEÐ SAMANTEKT EFST ---
-                   <div className="timeline">
-                       
-                       <div style={{
-                           background: 'rgba(255,255,255,0.1)', 
-                           padding: '20px', 
-                           borderRadius: '12px', 
-                           marginBottom: '30px',
-                           borderLeft: '4px solid #4da6ff'
-                       }}>
-                           <h3 style={{marginTop: 0, fontSize: '0.8rem', color: '#aaa', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '10px'}}>Yfirlit málsins (AI)</h3>
-                           <p style={{margin: 0, fontSize: '1.1rem', lineHeight: '1.6'}}>
-                               {loadingSummary && !summary ? '🤖 Les fréttirnar og skrifa yfirlit...' : (summary || article.excerpt)}
-                           </p>
+                   <>
+                       {/* 1. Super-Story (AI skrifuð frétt) */}
+                       <div style={{marginBottom: '40px'}}>
+                           {loadingText && !unifiedStory ? (
+                               <div style={{color: '#888', fontStyle: 'italic', display:'flex', alignItems:'center', gap:'10px'}}>
+                                   <span>✍️</span> Les fréttirnar og skrifa yfirlit...
+                               </div>
+                           ) : (
+                               (unifiedStory || article.excerpt).split('\n').map((p:string, i:number) => <p key={i} style={{marginBottom:'15px'}}>{p}</p>)
+                           )}
                        </div>
 
-                       {loadingTopic ? <p>Sæki fréttir...</p> : topicArticles.map((item) => (
-                           <div key={item.id} style={{marginBottom: '25px', paddingBottom: '25px', borderBottom: '1px solid rgba(255,255,255,0.1)'}}>
-                               <div style={{display:'flex', alignItems:'center', gap:'10px', marginBottom:'5px', fontSize:'0.9rem', color:'#aaa'}}>
-                                   <span style={{fontWeight:'bold', color:'white'}}>{item.sources?.name}</span>
-                                   <span>• {new Date(item.published_at).toLocaleTimeString('is-IS', {hour:'2-digit', minute:'2-digit'})}</span>
-                               </div>
-                               <h3 style={{margin:'0 0 10px 0', fontSize:'1.2rem'}}>{item.title}</h3>
-                               <p style={{fontSize:'1rem', color:'#ccc', marginBottom:'10px'}}>{item.excerpt}</p>
-                               <a href={item.url} target="_blank" style={{color:'#4da6ff', textDecoration:'none', fontSize:'0.9rem'}}>Lesa alla frétt ↗</a>
-                           </div>
-                       ))}
-                   </div>
+                       {/* 2. Heimildir (Listi neðst) */}
+                       <div style={{borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '20px'}}>
+                           <h4 style={{margin: '0 0 15px 0', color: '#888', textTransform: 'uppercase', fontSize: '0.8rem', letterSpacing:'1px'}}>Heimildir</h4>
+                           {loadingTopic ? <p>Sæki...</p> : topicArticles.map((item) => (
+                               <a key={item.id} href={item.url} target="_blank" style={{display:'block', textDecoration:'none', marginBottom: '15px', padding: '15px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', borderLeft: '3px solid rgba(255,255,255,0.2)'}}>
+                                   <div style={{display:'flex', alignItems:'center', gap:'8px', fontSize:'0.8rem', color:'#aaa', marginBottom:'4px'}}>
+                                       <span style={{fontWeight:'bold', color:'white'}}>{item.sources?.name}</span>
+                                       <span>• {new Date(item.published_at).toLocaleTimeString('is-IS', {hour:'2-digit', minute:'2-digit'})}</span>
+                                   </div>
+                                   <div style={{color: '#4da6ff', fontSize:'0.95rem'}}>{item.title} ↗</div>
+                               </a>
+                           ))}
+                       </div>
+                   </>
                ) : (
-                   // --- VENJULEG FRÉTT ---
+                   // Stök frétt (óbreytt)
                    <>
                     {article.full_text ? (
                         article.full_text.split('\n').map((paragraph: string, i: number) => {
@@ -241,20 +265,31 @@ export default function NewsCard({ article }: { article: any }) {
                         })
                     ) : (<p>{article.excerpt}</p>)}
                     <div style={{marginTop: '40px', textAlign: 'center'}}>
-                        <a href={article.url} target="_blank" style={{
-                            display: 'inline-block', color: 'white', textDecoration: 'none', fontWeight: 'bold', 
-                            border: '1px solid rgba(255,255,255,0.3)', background: 'rgba(255,255,255,0.1)',
-                            padding: '12px 24px', borderRadius: '30px', backdropFilter: 'blur(5px)'
-                        }}>Lesa nánar á vef miðils ↗</a>
+                        <a href={article.url} target="_blank" style={{display: 'inline-block', color: 'white', textDecoration: 'none', fontWeight: 'bold', border: '1px solid rgba(255,255,255,0.3)', background: 'rgba(255,255,255,0.1)', padding: '12px 24px', borderRadius: '30px', backdropFilter: 'blur(5px)'}}>Lesa nánar á vef miðils ↗</a>
                     </div>
                    </>
                )}
              </div>
            )}
            
-           {/* Birtist bara ef EKKI topic */}
-           {!isTopic && activeTab === 'eli10' && (<div>{loadingSummary ? '🤖 Hugsa...' : <p style={{fontSize:'1.2rem', lineHeight:'1.6'}}>{summary || 'Engin samantekt í boði.'}</p>}</div>)}
-           {!isTopic && activeTab === 'related' && (<div>{relatedArticles.map(rel => <div key={rel.id} style={{marginBottom:'15px', fontWeight:'bold'}}>{rel.title}</div>)}</div>)}
+           {/* FLIPI 2: ELI10 (Fyrir alla) */}
+           {activeTab === 'eli10' && (
+             <div>
+                 {loadingEli10 && !eli10 ? '🤖 Hugsa...' : <p style={{fontSize:'1.2rem', lineHeight:'1.6'}}>{eli10 || 'Smelltu til að fá útskýringu.'}</p>}
+             </div>
+           )}
+           
+           {/* FLIPI 3: TENGT (Fyrir alla) */}
+           {activeTab === 'related' && (
+             <div>
+                 {loadingRelated ? 'Leita...' : relatedArticles.length === 0 ? 'Ekkert tengt efni fannst.' : relatedArticles.map(rel => (
+                     <div key={rel.id} style={{marginBottom:'15px', paddingBottom:'15px', borderBottom:'1px solid rgba(255,255,255,0.1)'}}>
+                         <div style={{fontSize:'0.8rem', color:'#888', marginBottom:'2px'}}>{rel.sources?.name}</div>
+                         <div style={{fontWeight:'bold', fontSize:'1rem'}}>{rel.title}</div>
+                     </div>
+                 ))}
+             </div>
+           )}
            
            <div onClick={() => setExpanded(false)} style={{marginTop: '50px', marginBottom: '80px', display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'pointer', opacity: 0.8}}>
              <span style={{fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '2px', fontWeight: 'bold', marginBottom: '5px'}}>Loka</span>
@@ -270,6 +305,6 @@ function tabStyle(isActive: boolean) {
   return {
     flex: 1, padding: '10px 0', background: 'none', border: 'none',
     color: isActive ? 'white' : '#888', borderBottom: isActive ? '2px solid white' : 'none',
-    fontWeight: 'bold', fontSize: '0.9rem'
+    fontWeight: 'bold', fontSize: '0.9rem', cursor: 'pointer'
   };
 }

@@ -19,6 +19,15 @@ const RSS_FEEDS = [
   'https://www.theguardian.com/world/rss', // The Guardian
 ];
 
+// --- HJÁLPARFALL: Hreinsar titil fyrir samanburð ---
+function cleanTitle(text: string) {
+  return text
+    .toLowerCase()
+    .replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, "") // Fjarlægja tákn
+    .replace(/\s{2,}/g, " ") // Fjarlægja auka bil
+    .trim();
+}
+
 // --- AI Hreinsun, Flokkun og ÞÝÐING ---
 async function processArticle(title: string, rawText: string) {
   try {
@@ -72,7 +81,6 @@ async function processArticle(title: string, rawText: string) {
 
 // --- JINA READER & MYNDAVINNSLA ---
 async function fetchContentAndImage(url: string) {
-  // Skilgreinum ogImage HÉR svo það sé aðgengilegt í öllu fallinu (líka catch)
   let ogImage: string | null = null;
 
   try {
@@ -101,7 +109,6 @@ async function fetchContentAndImage(url: string) {
     // 2. Jina fyrir texta
     const res = await fetch(`https://r.jina.ai/${url}`);
     
-    // Ef Jina svarar ekki 200 OK, notum við bara myndina sem við fundum
     if (!res.ok) return { text: null, image: ogImage };
 
     const markdown = await res.text();
@@ -112,11 +119,9 @@ async function fetchContentAndImage(url: string) {
         .replace(/[#*`_]/g, '')
         .trim();
 
-    // Skilum textanum og myndinni (ogImage hefur forgang því við treystum því betur)
     return { text: text.substring(0, 5000), image: ogImage }; 
 
   } catch (error) {
-    // Ef allt fer í klessu (Jina timeout), skilum við samt myndinni ef hún fannst!
     return { text: null, image: ogImage };
   }
 }
@@ -132,38 +137,59 @@ async function generateEmbedding(text: string) {
   } catch (e) { return null; }
 }
 
-// --- TOPIC LOGIC (Uppfært til að höndla null embedding) ---
+// --- TOPIC LOGIC (Uppfært með Clean Title og Lægri Þröskuld) ---
 async function assignTopic(supa: any, articleId: string, title: string, embedding: any | null, imageUrl: string | null, category: string) {
   let topicId = null;
+  const cleanedTitle = cleanTitle(title);
 
-  // 1. Leita að svipuðum fréttum (BARA ef embedding er til)
-  if (embedding) {
-      // Við notum SQL fallið sem við bjuggum til í Supabase
+  // 1. HEIMSKI TÉKKINN (Hreinsaður titill)
+  // Við sækjum nýjustu 50 topics og berum saman hreinsaða titla í JS
+  const { data: recentTopics } = await supa
+    .from('topics')
+    .select('id, title')
+    .order('updated_at', { ascending: false })
+    .limit(50);
+
+  if (recentTopics) {
+      for (const t of recentTopics) {
+          if (cleanTitle(t.title) === cleanedTitle) {
+              console.log(`🎯 Fann nákvæman titil-match (hreinsaður)! "${title}" == "${t.title}"`);
+              topicId = t.id;
+              break;
+          }
+      }
+  }
+
+  // 2. SNJALLI TÉKKINN (Vector Search)
+  // Keyrum þetta BARA ef við fundum ekki exact match
+  if (!topicId && embedding) {
       const { data: similarArticles } = await supa.rpc('match_articles_for_topic', {
         query_embedding: embedding,
-        match_threshold: 0.88, // 88% líkindi = Sama frétt
+        match_threshold: 0.6, // Lækkað í 0.6 til að vera mjög "inclusive"
         match_count: 1
       });
 
       if (similarArticles && similarArticles.length > 0) {
-        // Fannst svipuð frétt! Notum sama Topic ID
+        console.log(`✅ Fann AI match! "${title}"`);
         topicId = similarArticles[0].topic_id;
-        
-        // Uppfærum Topic (hækkum teljara og uppfærum tímastimpil)
-        const { data: topic } = await supa.from('topics').select('article_count').eq('id', topicId).single();
-        if (topic) {
-            await supa.from('topics').update({ 
-                article_count: topic.article_count + 1,
-                updated_at: new Date().toISOString()
-            }).eq('id', topicId);
-        }
       }
   }
 
-  // 2. Ef ekkert fannst (eða ekkert embedding), búum til NÝTT Topic
-  if (!topicId) {
-    const { data: newTopic, error } = await supa.from('topics').insert({
-      title: title, // Byrjum með titil fyrstu fréttarinnar
+  // 3. UPPFÆRA EÐA BÚA TIL
+  if (topicId) {
+    // Uppfærum Topic (hækkum teljara og uppfærum tímastimpil)
+    const { data: topic } = await supa.from('topics').select('article_count').eq('id', topicId).single();
+    if (topic) {
+        await supa.from('topics').update({ 
+            article_count: topic.article_count + 1,
+            updated_at: new Date().toISOString()
+        }).eq('id', topicId);
+    }
+  } else {
+    // Búum til NÝTT Topic
+    console.log(`🆕 Bý til nýtt topic: "${title}"`);
+    const { data: newTopic } = await supa.from('topics').insert({
+      title: title, 
       summary: null, 
       category: category,
       image_url: imageUrl,
@@ -173,7 +199,7 @@ async function assignTopic(supa: any, articleId: string, title: string, embeddin
     if (newTopic) topicId = newTopic.id;
   }
 
-  // 3. Tengjum fréttina við Topic-ið
+  // 4. Tengjum fréttina við Topic-ið
   if (topicId) {
     await supa.from('articles').update({ topic_id: topicId }).eq('id', articleId);
   }
@@ -207,8 +233,8 @@ export async function GET() {
       }
 
       if (source) {
-        // Tökum 1 frétt (til að spara tíma)
-        const items = feed.items?.slice(0, 1) || [];
+        // Tökum 2 fréttir til að prófa
+        const items = feed.items?.slice(0, 2) || [];
         
         for (const item of items) {
           const url = item.link || '';
@@ -217,34 +243,30 @@ export async function GET() {
           const { data: existing } = await supa.from('articles').select('id').eq('url', url).maybeSingle();
           if (existing) continue;
 
-          // 1. Reyna RSS mynd
+          // 1. Myndir
           let imageUrl = null;
           if (item.media && item.media['$'] && item.media['$'].url) imageUrl = item.media['$'].url;
           else if (item.thumbnail && item.thumbnail['$'] && item.thumbnail['$'].url) imageUrl = item.thumbnail['$'].url;
           else if (item.enclosure && item.enclosure.url) imageUrl = item.enclosure.url;
 
-          // 2. Sækja efni með Jina (og sérstaka MBL fixinu)
+          // 2. Scrape
           const scraped = await fetchContentAndImage(url);
-          
-          // Ef RSS var ekki með mynd, notum við scrape myndina
           if (!imageUrl && scraped.image) imageUrl = scraped.image;
 
-          // 3. AI Hreinsun, Flokkun og Þýðing
+          // 3. AI Process
           const processed = await processArticle(item.title || '', scraped.text || item.contentSnippet || '');
 
           const hash = crypto.createHash('md5').update(((item.title || '') + url).toLowerCase()).digest('hex');
-
-          // Bætum við hlekk neðst í textann
           const textWithLink = processed.text + `\n\n[Lesa nánar á vef miðils](${url})`;
 
           const articleData = {
             source_id: source.id,
-            title: processed.title, // Þýddur titill (ef við á)
+            title: processed.title, 
             excerpt: (item.contentSnippet || '').substring(0, 300),
             full_text: textWithLink, 
             url: url,
             published_at: item.isoDate ? new Date(item.isoDate) : new Date(),
-            language: 'is', // Allt er núna á íslensku!
+            language: 'is', 
             image_url: imageUrl,
             hash: hash,
             category: processed.category
@@ -255,16 +277,13 @@ export async function GET() {
           if (!error && saved) {
             totalSaved++;
             
-            // Reynum að búa til embedding
             const embedding = await generateEmbedding((processed.title || '') + " " + (processed.text || "").substring(0, 500));
             
             if (embedding) {
-                // Vistum embedding
                 await supa.from('article_embeddings').upsert({ article_id: saved.id, embedding });
             }
 
-            // --- KALLA Á TOPIC FALLIÐ (Fært út fyrir if(embedding)) ---
-            // Þetta tryggir að ALLAR fréttir fái topic, líka ef embedding vantar
+            // KÖLLUM Á NÝJA ASSIGN TOPIC
             await assignTopic(supa, saved.id, processed.title, embedding, imageUrl, processed.category);
           }
         }
