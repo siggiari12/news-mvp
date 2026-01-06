@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import NewsCard from "./NewsCard";
 import { supabaseBrowser } from "@/lib/supabase";
 
@@ -8,64 +8,83 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
   const [loading, setLoading] = useState(initialArticles ? false : true);
   const [activeCategory, setActiveCategory] = useState<'all' | 'innlent' | 'erlent' | 'sport'>('all');
 
+  // --- NÝTT: Fylgjumst með hvort notandi sé að lesa ---
+  const [readingId, setReadingId] = useState<string | null>(null);
+  const isReadingRef = useRef(false);
+
+  // Uppfærum ref svo fetchNews viti af stöðunni inni í intervalinu
   useEffect(() => {
-    const fetchNews = async () => {
-      // 1. Sækjum TOPICS (í staðinn fyrir articles)
-      const { data } = await supabaseBrowser
-        .from('topics')
-        .select(`
-          *,
-          articles (
-            id, title, excerpt, full_text, url, published_at, image_url, sources(name)
-          )
-        `)
-        .order('updated_at', { ascending: false })
-        .limit(100);
-      
-      if (data) {
-        // 2. Pökkum gögnunum fyrir NewsCard
-        const formattedArticles = data.map((topic: any) => {
-          // Finnum nýjustu fréttina í þessu topici
-          const mainArticle = topic.articles && topic.articles.length > 0 ? topic.articles[0] : null;
-          
-          // Debug: Sjáum hvort við finnum stórmál
-          if (topic.article_count > 1) {
-             console.log(`🔥 Fann stórmál: ${topic.title} (${topic.article_count} miðlar)`);
-          }
+    isReadingRef.current = !!readingId;
+  }, [readingId]);
 
-          return {
-            id: topic.id,      // Topic ID
-            topic_id: topic.id,
-            title: topic.title,
-            // Ef engin samantekt, notum excerpt úr frétt
-            excerpt: topic.summary || mainArticle?.excerpt,
-            // Ef engin topic mynd, notum mynd úr frétt
-            image_url: topic.image_url || mainArticle?.image_url,
-            published_at: topic.updated_at,
-            article_count: topic.article_count, // Stjórnar eldinum
-            category: topic.category,
-            
-            // Upplýsingar um miðil
-            sources: mainArticle?.sources || { name: 'Samantekt' },
-            
-            // Fyrir staka frétt
-            full_text: mainArticle?.full_text,
-            url: mainArticle?.url
-          };
-        });
+  const fetchNews = async () => {
+    // --- MIKILVÆGT: Ef notandi er að lesa, EKKI uppfæra listann ---
+    if (isReadingRef.current) {
+        console.log("Notandi að lesa, fresta uppfærslu...");
+        return;
+    }
 
-        setArticles(prev => {
-            // Komum í veg fyrir flökt ef gögnin eru eins
-            if (prev.length > 0 && formattedArticles.length > 0 && prev[0].id === formattedArticles[0].id) return prev;
-            return formattedArticles;
-        });
-        setLoading(false);
-      }
-    };
+    console.log("Sæki nýjar fréttir...");
+    const { data } = await supabaseBrowser
+      .from('topics')
+      .select(`
+        *,
+        articles (
+          id, title, excerpt, full_text, url, published_at, image_url, sources(name)
+        )
+      `)
+      .order('updated_at', { ascending: false })
+      .limit(200); // Sækjum 200
+    
+    if (data) {
+      console.log("Supabase skilaði:", data.length, "færslum."); // DEBUG
 
+      const formattedArticles = data.map((topic: any) => {
+        const mainArticle = topic.articles && topic.articles.length > 0 ? topic.articles[0] : null;
+        
+        return {
+          id: topic.id,
+          topic_id: topic.id,
+          title: topic.title,
+          excerpt: topic.summary || mainArticle?.excerpt,
+          image_url: topic.image_url || mainArticle?.image_url,
+          published_at: topic.updated_at,
+          article_count: topic.article_count,
+          category: topic.category,
+          sources: mainArticle?.sources || { name: 'Samantekt' },
+          full_text: mainArticle?.full_text,
+          url: mainArticle?.url
+        };
+      });
+
+      // --- BREYTING: Uppfærum ALLTAF (tökum út optimization tékkið) ---
+      setArticles(formattedArticles);
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // 1. Slökkvum á scroll restoration
+    if ('scrollRestoration' in history) {
+        history.scrollRestoration = 'manual';
+    }
+    // 2. Skrollum efst strax
+    window.scrollTo(0, 0);
+
+    // 3. Sækjum fréttir
     fetchNews();
     
-    // 3. Hlustum á breytingar í TOPICS töflunni
+    // 4. Hlustum eftir visibility
+    const handleVisibilityChange = () => {
+        if (document.visibilityState === 'visible') {
+            console.log("App orðið sýnilegt -> Refresh og Scroll Top");
+            window.scrollTo(0, 0);
+            fetchNews();
+        }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    // 5. Realtime
     const channel = supabaseBrowser
       .channel('realtime-topics')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'topics' }, (payload) => {
@@ -74,17 +93,21 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
       })
       .subscribe();
 
+    // 6. Polling
     const interval = setInterval(() => { fetchNews(); }, 60000);
 
     return () => { 
       supabaseBrowser.removeChannel(channel); 
       clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
 
+  // --- BREYTING: Case-insensitive filter ---
   const filteredArticles = articles.filter(article => {
     if (activeCategory === 'all') return true;
-    return article.category === activeCategory;
+    const cat = (article.category || '').toLowerCase().trim();
+    return cat === activeCategory;
   });
 
   if (loading) {
@@ -100,8 +123,6 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
 
   return (
     <main key={activeCategory} className="feed-container">
-      
-      {/* FLIPAR */}
       <div style={{
         position: 'fixed', top: 0, left: 0, width: '100%', 
         zIndex: 100, 
@@ -117,14 +138,20 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
         <button onClick={() => setActiveCategory('sport')} style={catStyle(activeCategory === 'sport')}>ÍÞRÓTTIR</button>
       </div>
 
-      {/* FRÉTTIR */}
       {filteredArticles.map((article) => (
-        <NewsCard key={article.id} article={article} />
+        <NewsCard 
+            key={article.id} 
+            article={article}
+            isExpanded={readingId === article.id}
+            onOpen={() => setReadingId(article.id)}
+            onClose={() => setReadingId(null)}
+        />
       ))}
       
       {filteredArticles.length === 0 && (
          <div className="news-card" style={{justifyContent: 'center', alignItems: 'center'}}>
             <h2>Engar fréttir í þessum flokki</h2>
+            <p style={{color: '#888', marginTop: '10px'}}>Prófaðu annan flokk.</p>
          </div>
       )}
     </main>

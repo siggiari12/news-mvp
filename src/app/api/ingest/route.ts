@@ -23,7 +23,9 @@ const RSS_FEEDS = [
 function cleanTitle(text: string) {
   return text
     .toLowerCase()
-    .replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, "") // Fjarlægja tákn
+    .replace(/\|.*$/, '') // Fjarlægja allt eftir | (t.d. "| mbl.is")
+    .replace(/-.*$/, '')  // Fjarlægja allt eftir - (t.d. "- Vísir")
+    .replace(/[^\w\sáðéíóúýþæö]/g, '') // Fjarlægja tákn en halda íslenskum stöfum
     .replace(/\s{2,}/g, " ") // Fjarlægja auka bil
     .trim();
 }
@@ -41,7 +43,7 @@ async function processArticle(title: string, rawText: string) {
       messages: [
         {
           role: "system",
-          content: `Þú ert fréttaritari. Verkefni þitt er að hreinsa, flokka og þýða ERLENDAR fréttir.
+          content: `Þú ert fréttaritari. Verkefni þitt er að hreinsa, flokka og þýða fréttir.
           
           OUTPUT JSON snið:
           {
@@ -50,10 +52,10 @@ async function processArticle(title: string, rawText: string) {
             "translated_title": "Titillinn á ÍSLENSKU. Ef upprunalegi titillinn er á íslensku, skilaðu honum ÓBREYTTUM. Ef hann er á ensku, þýddu hann."
           }
 
-          REGLUR FYRIR FLOKKUN:
-          1. SPORT: Íþróttir, fótbolti, handbolti, lið, leikir.
-          2. ERLENT: Fréttir frá útlöndum (BBC, NYT, Guardian).
-          3. INNLENT: Íslenskar fréttir (RÚV, MBL, Vísir).
+          REGLUR FYRIR FLOKKUN (MIKILVÆGT):
+          1. SPORT: Allt sem tengist íþróttum (fótbolti, handbolti, golf, formúla 1, landslið). Þetta gildir LÍKA ef fréttin er um íslenskt landslið eða íslenska leikmenn. Það er ALLTAF 'sport', aldrei 'innlent'.
+          2. ERLENT: Fréttir frá útlöndum (BBC, NYT, Guardian) sem eru EKKI íþróttir.
+          3. INNLENT: Íslenskar fréttir (RÚV, MBL, Vísir) sem eru EKKI íþróttir (t.d. stjórnmál, veður, samfélag).
           `
         },
         {
@@ -61,7 +63,7 @@ async function processArticle(title: string, rawText: string) {
           content: `Titill: ${title}\n\nHrár texti:\n${textSample}`
         }
       ],
-      temperature: 0.3,
+      temperature: 0, // Lægra hitastig fyrir meiri nákvæmni í flokkun
       response_format: { type: "json_object" }
     });
 
@@ -163,9 +165,7 @@ async function assignTopic(supa: any, articleId: string, title: string, embeddin
   if (!topicId && embedding) {
       const { data: similarArticles } = await supa.rpc('match_articles_for_topic', {
         query_embedding: embedding,
-        // HÆKKAÐ Í 0.78: Verðum vandlátari!
-        // Ef það er undir 0.78, þá verður þetta NÝTT topic (en birtist í "Tengt")
-        match_threshold: 0.78, 
+        match_threshold: 0.75, // Lækkaður þröskuldur (eins og þú varst með)
         match_count: 1
       });
 
@@ -201,92 +201,112 @@ async function assignTopic(supa: any, articleId: string, title: string, embeddin
   }
 }
 
+// --- TÚRBÓ GET FALL (Parallel Processing) ---
 export async function GET() {
   const supa = supabaseServer();
   const parser = new Parser({
     customFields: { item: [['media:content', 'media'], ['media:thumbnail', 'thumbnail'], ['enclosure', 'enclosure']] },
   });
 
+  const startTime = Date.now();
   let totalSaved = 0;
 
   try {
-    for (const feedUrl of RSS_FEEDS) {
-      let feed;
-      try { feed = await parser.parseURL(feedUrl); } catch (e) { continue; }
-
-      let sourceName = feed.title || 'Fréttir';
-      if (feedUrl.includes('mbl')) sourceName = 'MBL';
-      if (feedUrl.includes('visir')) sourceName = 'Vísir';
-      if (feedUrl.includes('dv')) sourceName = 'DV';
-      if (feedUrl.includes('bbc')) sourceName = 'BBC';
-      if (feedUrl.includes('nytimes')) sourceName = 'NYT';
-      if (feedUrl.includes('guardian')) sourceName = 'The Guardian';
-
-      let { data: source } = await supa.from('sources').select('id').eq('rss_url', feedUrl).maybeSingle();
-      if (!source) {
-        const { data: inserted } = await supa.from('sources').insert({ name: sourceName, rss_url: feedUrl }).select().single();
-        source = inserted;
-      }
-
-      if (source) {
-        // Tökum 2 fréttir til að prófa
-        const items = feed.items?.slice(0, 2) || [];
+    // 1. Vinnum alla miðla SAMTÍMIS (Parallel)
+    const feedPromises = RSS_FEEDS.map(async (feedUrl) => {
+      try {
+        const feed = await parser.parseURL(feedUrl);
         
-        for (const item of items) {
-          const url = item.link || '';
-          if (!url) continue;
-          
-          const { data: existing } = await supa.from('articles').select('id').eq('url', url).maybeSingle();
-          if (existing) continue;
+        let sourceName = feed.title || 'Fréttir';
+        if (feedUrl.includes('mbl')) sourceName = 'MBL';
+        if (feedUrl.includes('visir')) sourceName = 'Vísir';
+        if (feedUrl.includes('dv')) sourceName = 'DV';
+        if (feedUrl.includes('bbc')) sourceName = 'BBC';
+        if (feedUrl.includes('nytimes')) sourceName = 'NYT';
+        if (feedUrl.includes('guardian')) sourceName = 'The Guardian';
 
-          // 1. Myndir
-          let imageUrl = null;
-          if (item.media && item.media['$'] && item.media['$'].url) imageUrl = item.media['$'].url;
-          else if (item.thumbnail && item.thumbnail['$'] && item.thumbnail['$'].url) imageUrl = item.thumbnail['$'].url;
-          else if (item.enclosure && item.enclosure.url) imageUrl = item.enclosure.url;
-
-          // 2. Scrape
-          const scraped = await fetchContentAndImage(url);
-          if (!imageUrl && scraped.image) imageUrl = scraped.image;
-
-          // 3. AI Process
-          const processed = await processArticle(item.title || '', scraped.text || item.contentSnippet || '');
-
-          const hash = crypto.createHash('md5').update(((item.title || '') + url).toLowerCase()).digest('hex');
-          const textWithLink = processed.text + `\n\n[Lesa nánar á vef miðils](${url})`;
-
-          const articleData = {
-            source_id: source.id,
-            title: processed.title, 
-            excerpt: (item.contentSnippet || '').substring(0, 300),
-            full_text: textWithLink, 
-            url: url,
-            published_at: item.isoDate ? new Date(item.isoDate) : new Date(),
-            language: 'is', 
-            image_url: imageUrl,
-            hash: hash,
-            category: processed.category
-          };
-
-          const { data: saved, error } = await supa.from('articles').upsert(articleData, { onConflict: 'url' }).select().single();
-          
-          if (!error && saved) {
-            totalSaved++;
-            
-            const embedding = await generateEmbedding((processed.title || '') + " " + (processed.text || "").substring(0, 500));
-            
-            if (embedding) {
-                await supa.from('article_embeddings').upsert({ article_id: saved.id, embedding });
+        let { data: source } = await supa.from('sources').select('id').eq('rss_url', feedUrl).maybeSingle();
+        
+        if (!source) {
+            const { data: existingByName } = await supa.from('sources').select('id').eq('name', sourceName).maybeSingle();
+            if (existingByName) {
+                source = existingByName;
+            } else {
+                const { data: inserted } = await supa.from('sources').insert({ name: sourceName, rss_url: feedUrl }).select().single();
+                source = inserted;
             }
-
-            // KÖLLUM Á NÝJA ASSIGN TOPIC
-            await assignTopic(supa, saved.id, processed.title, embedding, imageUrl, processed.category);
-          }
         }
+
+        if (source) {
+            const items = feed.items?.slice(0, 10) || [];
+            
+            const itemPromises = items.map(async (item) => {
+                const url = item.link || '';
+                if (!url) return 0;
+                
+                const { data: existing } = await supa.from('articles').select('id').eq('url', url).maybeSingle();
+                if (existing) return 0;
+
+                let imageUrl = null;
+                if (item.media && item.media['$'] && item.media['$'].url) imageUrl = item.media['$'].url;
+                else if (item.thumbnail && item.thumbnail['$'] && item.thumbnail['$'].url) imageUrl = item.thumbnail['$'].url;
+                else if (item.enclosure && item.enclosure.url) imageUrl = item.enclosure.url;
+
+                const scraped = await fetchContentAndImage(url);
+                if (!imageUrl && scraped.image) imageUrl = scraped.image;
+
+                const processed = await processArticle(item.title || '', scraped.text || item.contentSnippet || '');
+
+                const hash = crypto.createHash('md5').update(((item.title || '') + url).toLowerCase()).digest('hex');
+                const textWithLink = processed.text + `\n\n[Lesa nánar á vef miðils](${url})`;
+
+                const articleData = {
+                    source_id: source.id,
+                    title: processed.title, 
+                    excerpt: (item.contentSnippet || '').substring(0, 300),
+                    full_text: textWithLink, 
+                    url: url,
+                    published_at: item.isoDate ? new Date(item.isoDate) : new Date(),
+                    language: 'is', 
+                    image_url: imageUrl,
+                    hash: hash,
+                    category: processed.category
+                };
+
+                const { data: saved, error } = await supa.from('articles').upsert(articleData, { onConflict: 'url' }).select().single();
+                
+                if (!error && saved) {
+                    const embedding = await generateEmbedding((processed.title || '') + " " + (processed.text || "").substring(0, 500));
+                    
+                    if (embedding) {
+                        await supa.from('article_embeddings').upsert({ article_id: saved.id, embedding });
+                        await assignTopic(supa, saved.id, processed.title, embedding, imageUrl, processed.category);
+                    }
+                    return 1;
+                }
+                return 0;
+            });
+
+            // HÉR VAR VILLAN: Bætti við ": number" til að laga týpuna
+            const results = await Promise.all(itemPromises);
+            return results.reduce((a: number, b) => (a || 0) + (b || 0), 0);
+        }
+        return 0;
+      } catch (e) {
+        console.error(`Villa í feed ${feedUrl}:`, e);
+        return 0;
       }
-    }
-    return NextResponse.json({ success: true, count: totalSaved });
+    });
+
+    // HÉR LÍKA: Bætti við ": number"
+    const results = await Promise.all(feedPromises);
+    totalSaved = results.reduce((a: number, b) => a + b, 0);
+
+    const duration = (Date.now() - startTime) / 1000;
+    return NextResponse.json({ success: true, count: totalSaved, time: `${duration}s` });
+    
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+

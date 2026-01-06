@@ -6,23 +6,22 @@ export const maxDuration = 60;
 
 export async function POST(req: Request) {
   try {
-    // 1. NÝTT: Við tökum við 'type' (full eða eli10)
     const { textToSummarize, topicId, type = 'full' } = await req.json();
     let finalPrompt = textToSummarize;
 
-    // 2. EF TOPIC: Sækjum allar fréttirnar og púsla saman
+    // 1. EF TOPIC: Sækjum FULLAN TEXTA (ekki bara excerpt)
     if (topicId) {
         const supabase = supabaseServer();
         const { data: articles } = await supabase
             .from('articles')
-            .select('title, excerpt, sources(name)')
+            .select('title, full_text, sources(name)') // Breytt í full_text
             .eq('topic_id', topicId)
-            .limit(5); // Lesum max 5 fréttir til að spara token
+            .limit(5); 
 
         if (articles && articles.length > 0) {
-            // Búum til einn stóran texta úr öllum fréttunum
             finalPrompt = articles.map((a: any) => 
-                `Miðill: ${a.sources?.name}\nTitill: ${a.title}\nInngangur: ${a.excerpt}`
+                // Tökum fyrstu 3000 stafi úr hverri frétt (nóg fyrir deep dive, sparar tokens)
+                `Miðill: ${a.sources?.name}\nTitill: ${a.title}\nTexti: ${(a.full_text || '').substring(0, 3000)}`
             ).join('\n\n---\n\n');
         }
     }
@@ -31,18 +30,26 @@ export async function POST(req: Request) {
 
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
 
-    // 3. NÝTT: Mismunandi Prompts eftir því hvort þetta er 'full' eða 'eli10'
     let systemPrompt = "";
     let userPrompt = "";
 
     if (type === 'eli10') {
-        // ELI10 (Einföldun fyrir 10 ára)
+        // --- ELI10 (Óbreytt - eins og þú vildir hafa það) ---
         systemPrompt = "Þú ert kennari. Útskýrðu fréttina á mjög einföldu máli (fyrir 10 ára barn). Vertu stuttorður og hlutlaus.";
         userPrompt = `Útskýrðu þetta einfaldlega:\n\n${finalPrompt}`;
     } else {
-        // FULL (Super-fréttin / Blaðamaður)
-        systemPrompt = "Þú ert reyndur blaðamaður. Verkefni þitt er að skrifa eina heildstæða og ítarlega frétt á íslensku byggða á eftirfarandi heimildum. Ekki segja 'samkvæmt vísi' eða 'samkvæmt mbl', heldur fléttaðu upplýsingarnar saman í eina hlutlausa frásögn. Notaðu millifyrirsagnir ef þarf.";
-        userPrompt = `Skrifaðu fréttina:\n\n${finalPrompt}`;
+        // --- SUPER-FRÉTTIN (Uppfært í "Deep Dive") ---
+        systemPrompt = `
+          Þú ert reyndur fréttaskýrandi og rannsóknarblaðamaður. 
+          Verkefni þitt er að skrifa **ítarlega og djúpa úttekt** á málinu byggða á eftirfarandi heimildum.
+          
+          Kröfur:
+          1. **Smáatriði:** Taktu fram nöfn, staðsetningar, tímasetningar og tölulegar upplýsingar.
+          2. **Uppbygging:** Notaðu millifyrirsagnir (feitletrun) til að stúka textann niður (t.d. Atburðarásin, Viðbrögð, Bakgrunnur).
+          3. **Hlutleysi:** Fléttaðu upplýsingarnar saman í eina heildstæða frásögn. Ekki segja "MBL segir þetta", heldur sameinaðu staðreyndirnar.
+          4. **Lengd:** Textinn á að vera innihaldsríkur og gefa tæmandi yfirlit.
+        `;
+        userPrompt = `Gerðu ítarlega úttekt á þessu máli:\n\n${finalPrompt}`;
     }
 
     const response = await openai.chat.completions.create({
@@ -51,8 +58,8 @@ export async function POST(req: Request) {
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt }
       ],
-      temperature: 0.5,
-      max_tokens: 600, // Hækkaði tokens aðeins fyrir ítarlegri frétt
+      temperature: 0.4, // Aðeins lægra hitastig fyrir meiri nákvæmni í staðreyndum
+      max_tokens: 1200, // Hækkað úr 600 í 1200 fyrir lengri texta
     });
 
     const summary = response.choices[0].message.content;
