@@ -27,7 +27,7 @@ export async function POST(request: Request) {
     // 0.5 er góður þröskuldur fyrir "Tengt efni" (ekki of strangt, ekki of vítt)
     const { data: relatedMatches, error: rpcError } = await supa.rpc('match_articles_for_topic', {
       query_embedding: embeddingData.embedding,
-      match_threshold: 0.5, 
+      match_threshold: 0.6, 
       match_count: 10
     });
 
