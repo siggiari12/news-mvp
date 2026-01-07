@@ -167,9 +167,9 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px',
         pointerEvents: 'none'
       }}>
-        {!showSearch && (
+                {!showSearch && (
             <div style={{
-                display: 'flex', gap: '9px', pointerEvents: 'auto',
+                display: 'flex', gap: '10px', pointerEvents: 'auto',
                 overflowX: 'auto', whiteSpace: 'nowrap', maxWidth: '100%', padding: '0 20px',
                 scrollbarWidth: 'none', msOverflowStyle: 'none', WebkitOverflowScrolling: 'touch'
             }}>
@@ -178,7 +178,14 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
                 <button onClick={() => setActiveCategory('innlent')} style={catStyle(activeCategory === 'innlent')}>INNLENT</button>
                 <button onClick={() => setActiveCategory('erlent')} style={catStyle(activeCategory === 'erlent')}>ERLENT</button>
                 <button onClick={() => setActiveCategory('sport')} style={catStyle(activeCategory === 'sport')}>SPORT</button>
-                <button onClick={() => { setShowSearch(true); setSearchResults([]); }} style={catStyle(false)}><SearchIcon/></button>
+                
+                {/* Hér er lagaði stíllinn: */}
+                <button 
+                    onClick={() => { setShowSearch(true); setSearchResults([]); }} 
+                    style={{ ...catStyle(false), marginLeft: '10px' }}
+                >
+                    <SearchIcon/>
+                </button>
             </div>
         )}
 
