@@ -160,11 +160,11 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
         pointerEvents: 'none'
       }}>
         {!showSearch && (
-            <div style={{display: 'flex', gap: '15px', pointerEvents: 'auto'}}>
+            <div style={{display: 'flex', gap: '13px', pointerEvents: 'auto'}}>
                 <button onClick={() => setActiveCategory('all')} style={catStyle(activeCategory === 'all')}>ALLT</button>
                 <button onClick={() => setActiveCategory('innlent')} style={catStyle(activeCategory === 'innlent')}>INNLENT</button>
                 <button onClick={() => setActiveCategory('erlent')} style={catStyle(activeCategory === 'erlent')}>ERLENT</button>
-                <button onClick={() => setActiveCategory('sport')} style={catStyle(activeCategory === 'sport')}>ÍÞRÓTTIR</button>
+                <button onClick={() => setActiveCategory('sport')} style={catStyle(activeCategory === 'sport')}>Sport</button>
                 <button onClick={() => { setShowSearch(true); setSearchResults([]); }} style={catStyle(false)}>🔍</button>
             </div>
         )}
