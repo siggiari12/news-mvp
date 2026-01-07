@@ -17,7 +17,7 @@ interface NewsCardProps {
     onOpen: () => void;
     onClose: () => void;
     onRelatedClick?: (article: any) => void;
-    showCloseButton?: boolean; // NÝTT PROP
+    showCloseButton?: boolean;
 }
 
 export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelatedClick, showCloseButton }: NewsCardProps) {
@@ -163,7 +163,7 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
           opacity: isExpanded ? 0 : 1, transition: 'opacity 0.3s ease', pointerEvents: 'none' 
       }}></div>
 
-      {/* --- NÝTT: LOKA TAKKI Á FRAMHLIÐ (Fyrir Global Reader) --- */}
+      {/* --- LOKA TAKKI Á FRAMHLIÐ (Bara ef showCloseButton er true) --- */}
       {showCloseButton && !isExpanded && (
           <button 
             onClick={(e) => { e.stopPropagation(); onClose(); }}
@@ -301,7 +301,7 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
            {/* FLIPI 2: ELI10 */}
            {activeTab === 'eli10' && (
              <div>
-                 {loadingEli10 && !eli10 ? 'Hugsa...' : <p style={{fontSize:'1.2rem', lineHeight:'1.6'}}>{eli10 || 'Smelltu til að fá útskýringu.'}</p>}
+                 {loadingEli10 && !eli10 ? '🤖 Hugsa...' : <p style={{fontSize:'1.2rem', lineHeight:'1.6'}}>{eli10 || 'Smelltu til að fá útskýringu.'}</p>}
              </div>
            )}
            

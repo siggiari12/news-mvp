@@ -3,6 +3,14 @@ import { useState, useEffect, useRef } from "react";
 import NewsCard from "./NewsCard";
 import { supabaseBrowser } from "@/lib/supabase";
 
+// --- SVG IKON (Fyrir leit og loka) ---
+const SearchIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+);
+const CloseIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+);
+
 export default function NewsFeed({ initialArticles }: { initialArticles: any[] }) {
   const [articles, setArticles] = useState<any[]>(initialArticles || []);
   const [loading, setLoading] = useState(initialArticles ? false : true);
@@ -56,14 +64,14 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
   };
 
   const fetchNews = async () => {
-    if (isBusyRef.current) return; // Ekki uppfæra ef notandi er upptekinn
+    if (isBusyRef.current) return;
 
     console.log("Sæki nýjar fréttir...");
     const { data } = await supabaseBrowser
       .from('topics')
       .select(`*, articles (id, title, excerpt, full_text, url, published_at, image_url, sources(name))`)
       .order('updated_at', { ascending: false })
-      .limit(100); // 100 er passlegt fyrir mobile performance
+      .limit(100); 
     
     if (data) {
       const formattedArticles = formatData(data);
@@ -154,39 +162,45 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
       {/* --- TOP BAR --- */}
       <div style={{
         position: 'fixed', top: 0, left: 0, width: '100%', zIndex: 100, 
-        padding: '20px 0', paddingTop: 'calc(20px + env(safe-area-inset-top))',
+        padding: '15px 0', paddingTop: 'calc(15px + env(safe-area-inset-top))',
         background: 'linear-gradient(to bottom, rgba(0,0,0,0.9) 0%, transparent 100%)',
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px',
         pointerEvents: 'none'
       }}>
         {!showSearch && (
-            <div style={{display: 'flex', gap: '11px', pointerEvents: 'auto'}}>
+            <div style={{
+                display: 'flex', gap: '18px', pointerEvents: 'auto',
+                overflowX: 'auto', whiteSpace: 'nowrap', maxWidth: '100%', padding: '0 20px',
+                scrollbarWidth: 'none', msOverflowStyle: 'none', WebkitOverflowScrolling: 'touch'
+            }}>
+                <style>{`::-webkit-scrollbar { display: none; }`}</style>
                 <button onClick={() => setActiveCategory('all')} style={catStyle(activeCategory === 'all')}>ALLT</button>
                 <button onClick={() => setActiveCategory('innlent')} style={catStyle(activeCategory === 'innlent')}>INNLENT</button>
                 <button onClick={() => setActiveCategory('erlent')} style={catStyle(activeCategory === 'erlent')}>ERLENT</button>
-                <button onClick={() => setActiveCategory('sport')} style={catStyle(activeCategory === 'sport')}>Sport</button>
-                <button onClick={() => { setShowSearch(true); setSearchResults([]); }} style={catStyle(false)}>🔍</button>
+                <button onClick={() => setActiveCategory('sport')} style={catStyle(activeCategory === 'sport')}>SPORT</button>
+                <button onClick={() => { setShowSearch(true); setSearchResults([]); }} style={catStyle(false)}><SearchIcon/></button>
             </div>
         )}
 
         {showSearch && (
             <form onSubmit={handleSearch} style={{display: 'flex', gap: '10px', width: '90%', maxWidth: '400px', pointerEvents: 'auto'}}>
-                <input 
-                    autoFocus type="text" placeholder="Leita..." value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    style={{
-                        flex: 1, padding: '12px 20px', borderRadius: '30px', border: 'none', 
-                        background: 'rgba(50,50,50,0.9)', color: 'white', fontSize: '1rem'
-                    }}
-                />
-                <button type="button" onClick={() => { setShowSearch(false); setSearchQuery(""); }} style={{background:'none', border:'none', fontSize:'1.2rem'}}>❌</button>
+                <div style={{position: 'relative', flex: 1}}>
+                    <input 
+                        autoFocus type="text" placeholder="Leita..." value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        style={{
+                            width: '100%', padding: '12px 20px', borderRadius: '30px', border: 'none', 
+                            background: 'rgba(50,50,50,0.9)', color: 'white', fontSize: '1rem'
+                        }}
+                    />
+                </div>
+                <button type="button" onClick={() => { setShowSearch(false); setSearchQuery(""); }} style={{background:'none', border:'none', color:'white'}}><CloseIcon/></button>
             </form>
         )}
       </div>
 
       {/* --- LISTI (SEARCH VS FEED) --- */}
       {showSearch ? (
-          // LEITARNIÐURSTÖÐUR -> Opna Global Reader
           <div style={{padding: '100px 20px 20px 20px', minHeight: '100vh', background: '#111'}}>
               {isSearching && <p style={{textAlign:'center', color:'#888', marginTop:'20px'}}>Leita...</p>}
               {!isSearching && searchResults.length === 0 && searchQuery && <p style={{textAlign:'center', color:'#888', marginTop:'20px'}}>Ekkert fannst.</p>}
@@ -203,35 +217,33 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
               ))}
           </div>
       ) : (
-          // FEED -> Opna In-Place (nema ef smellt er á tengt)
+          // FEED -> Opna In-Place
           filteredArticles.map((article) => (
             <NewsCard 
                 key={article.id} 
                 article={article}
-                isExpanded={readingId === article.id} // In-Place stækkun
-                onOpen={() => setReadingId(article.id)} // Opna In-Place
-                onClose={() => setReadingId(null)} // Loka In-Place
-                // Ef smellt er á tengt efni hér -> Opna Global Reader
-                onRelatedClick={handleRelatedClick}
+                isExpanded={readingId === article.id} 
+                onOpen={() => setReadingId(article.id)} 
+                onClose={() => setReadingId(null)} 
+                onRelatedClick={handleRelatedClick} // Opnar Global Reader
             />
           ))
       )}
 
-      {/* --- GLOBAL READER (Yfirlag) --- */}
-      {/* Birtist þegar readingArticle er sett (úr leit eða tengdu efni) */}
+      {/* --- GLOBAL READER --- */}
       {readingArticle && (
           <div style={{position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', zIndex: 200, background: 'black'}}>
               <NewsCard 
                   key={readingArticle.id} 
                   article={readingArticle}
-                  isExpanded={isReaderExpanded} // Stýrt af Global Reader state
-                  showCloseButton={true} // <--- SENDA ÞETTA INN
+                  isExpanded={isReaderExpanded} 
+                  showCloseButton={true} // Loka takki á framhlið
                   onOpen={() => setIsReaderExpanded(true)}
                   onClose={() => {
                       if (isReaderExpanded) setIsReaderExpanded(false);
                       else setReadingArticle(null);
                   }}
-                  onRelatedClick={handleRelatedClick} // Opnar nýja frétt í sama glugga
+                  onRelatedClick={handleRelatedClick} 
               />
           </div>
       )}
@@ -244,15 +256,15 @@ function catStyle(isActive: boolean) {
     pointerEvents: 'auto' as const,
     background: 'none', border: 'none', 
     color: isActive ? '#ffffff' : 'rgba(255,255,255,0.6)', 
-    fontWeight: isActive ? '600' : '400', 
-    fontSize: '0.9rem', 
-    textTransform: 'capitalize' as const, 
+    fontWeight: isActive ? '700' : '500', 
+    fontSize: '0.85rem', 
+    textTransform: 'uppercase' as const, 
     textShadow: '0 1px 3px rgba(0,0,0,0.8)',
     cursor: 'pointer',
     position: 'relative' as const,
     transition: 'all 0.2s',
-    borderBottom: isActive ? '1px solid white' : '1px solid transparent',
-    paddingBottom: '2px'
+    borderBottom: isActive ? '2px solid white' : '2px solid transparent',
+    paddingBottom: '4px',
+    flexShrink: 0
   };
 }
-
