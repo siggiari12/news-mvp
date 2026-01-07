@@ -16,9 +16,11 @@ interface NewsCardProps {
     isExpanded: boolean;
     onOpen: () => void;
     onClose: () => void;
+    onRelatedClick?: (article: any) => void;
+    showCloseButton?: boolean; // NÝTT PROP
 }
 
-export default function NewsCard({ article, isExpanded, onOpen, onClose }: NewsCardProps) {
+export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelatedClick, showCloseButton }: NewsCardProps) {
   if (!article) return null;
 
   const [activeTab, setActiveTab] = useState<'read' | 'eli10' | 'related'>('read');
@@ -38,8 +40,6 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose }: NewsC
   const cardRef = useRef<HTMLElement>(null);
   const supabase = supabaseBrowser; 
 
-  // ATH: Við notum article_count til að vita hvort þetta sé "Topic" í viðmótinu,
-  // en í raun eru ÖLL spjöld Topics í grunninum.
   const isMultiSourceTopic = article.article_count && article.article_count > 1;
   const sourceName = article.sources?.name || (isMultiSourceTopic ? 'Samantekt' : '');
   const branding = getBranding(sourceName);
@@ -47,34 +47,16 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose }: NewsC
   useEffect(() => {
     const date = new Date(article.published_at || article.updated_at);
     setFormattedTime(date.toLocaleTimeString('is-IS', {hour: '2-digit', minute:'2-digit'}));
+  }, [article]); 
 
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (!entry.isIntersecting || entry.intersectionRatio < 0.4) {
-          if (isExpanded) onClose(); 
-        }
-      },
-      { threshold: 0.4 }
-    );
-
-    if (cardRef.current) observer.observe(cardRef.current);
-    return () => observer.disconnect();
-  }, [isExpanded]); 
-
-  // --- HELSTA BREYTINGIN HÉR ---
   useEffect(() => {
     if (isExpanded) {
-      // 1. Sækjum ALLTAF greinarnar sem tilheyra þessu topici (hvort sem það er 1 eða 5)
       if (topicArticles.length === 0) fetchTopicArticles();
 
-      // 2. Ef þetta er Multi-Source Topic, sækjum AI samantekt
       if (isMultiSourceTopic && !unifiedStory) fetchSummary('full'); 
-      
       if (activeTab === 'eli10' && !eli10) fetchSummary('eli10');
       
-      // 3. Sækjum tengt efni BARA þegar við eigum "alvöru" grein til að leita eftir
       const readyToSearch = topicArticles.length > 0;
-      
       if (activeTab === 'related' && relatedArticles.length === 0 && readyToSearch) {
           fetchRelated();
       }
@@ -83,7 +65,6 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose }: NewsC
 
   const fetchTopicArticles = async () => {
     setLoadingTopic(true);
-    // Hér notum við topic_id = article.id (því article er Topic row)
     const { data } = await supabase
       .from('articles')
       .select('*, sources(name)')
@@ -99,8 +80,6 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose }: NewsC
     else setLoadingEli10(true);
 
     try {
-      // Ef þetta er stök frétt, notum við textann úr henni beint (ef til)
-      // En við þurfum að passa að nota topicArticles[0] ef article er bara topic row
       const mainArticle = topicArticles.length > 0 ? topicArticles[0] : article;
       
       const payload = isMultiSourceTopic 
@@ -128,14 +107,12 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose }: NewsC
   const fetchRelated = async () => {
     setLoadingRelated(true);
     try {
-      // Hér er galdurinn: Við notum ALLTAF ID úr fyrstu alvöru greininni
       if (topicArticles.length === 0) {
           setLoadingRelated(false);
           return;
       }
       
       const searchId = topicArticles[0].id;
-      console.log("🔥 Sæki tengt efni fyrir Article ID:", searchId);
 
       const res = await fetch('/api/related', {
         method: 'POST',
@@ -151,7 +128,6 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose }: NewsC
     } catch (e) { console.error(e); } finally { setLoadingRelated(false); }
   };
 
-  // Helper til að finna réttan texta til að sýna
   const displayArticle = topicArticles.length > 0 ? topicArticles[0] : article;
 
   return (
@@ -186,6 +162,22 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose }: NewsC
           background: 'linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.6) 40%, transparent 100%)',
           opacity: isExpanded ? 0 : 1, transition: 'opacity 0.3s ease', pointerEvents: 'none' 
       }}></div>
+
+      {/* --- NÝTT: LOKA TAKKI Á FRAMHLIÐ (Fyrir Global Reader) --- */}
+      {showCloseButton && !isExpanded && (
+          <button 
+            onClick={(e) => { e.stopPropagation(); onClose(); }}
+            style={{
+                position: 'absolute', top: '20px', right: '20px', zIndex: 10,
+                background: 'rgba(0,0,0,0.5)', border: 'none', borderRadius: '50%',
+                width: '40px', height: '40px', color: 'white', fontSize: '1.2rem',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                backdropFilter: 'blur(5px)', cursor: 'pointer'
+            }}
+          >
+              ✕
+          </button>
+      )}
 
       <div className="content" style={{
           zIndex: 3, position: 'absolute', bottom: 0, left: 0, width: '100%',
@@ -223,13 +215,14 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose }: NewsC
         </span>
       </div>
 
-      {/* BAKSÍÐA (MODAL) */}
+      {/* BAKSÍÐA (MODAL) - BARA RENDERA EF OPIÐ! */}
+      {isExpanded && (
       <div style={{
         position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 4,
         display: 'flex', flexDirection: 'column', 
-        opacity: isExpanded ? 1 : 0, 
-        pointerEvents: isExpanded ? 'auto' : 'none', 
-        transition: 'opacity 0.3s ease 0.1s', paddingTop: '60px'
+        pointerEvents: 'auto', 
+        transition: 'opacity 0.3s ease 0.1s', paddingTop: '60px',
+        animation: 'fadeIn 0.3s ease' 
       }}>
         <div style={{padding: '0 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
            <h2 style={{fontSize: '1.2rem', fontWeight: 'bold', margin: 0, flex: 1}}>{article.title}</h2>
@@ -308,7 +301,7 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose }: NewsC
            {/* FLIPI 2: ELI10 */}
            {activeTab === 'eli10' && (
              <div>
-                 {loadingEli10 && !eli10 ? '🤖 Hugsa...' : <p style={{fontSize:'1.2rem', lineHeight:'1.6'}}>{eli10 || 'Smelltu til að fá útskýringu.'}</p>}
+                 {loadingEli10 && !eli10 ? 'Hugsa...' : <p style={{fontSize:'1.2rem', lineHeight:'1.6'}}>{eli10 || 'Smelltu til að fá útskýringu.'}</p>}
              </div>
            )}
            
@@ -316,10 +309,22 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose }: NewsC
            {activeTab === 'related' && (
              <div>
                  {loadingRelated ? 'Leita...' : relatedArticles.length === 0 ? 'Ekkert tengt efni fannst.' : relatedArticles.map(rel => (
-                     <a key={rel.id} href={rel.url} target="_blank" style={{display:'block', textDecoration:'none', color:'white', marginBottom:'15px', paddingBottom:'15px', borderBottom:'1px solid rgba(255,255,255,0.1)'}}>
+                     <div 
+                        key={rel.id} 
+                        onClick={(e) => {
+                            e.stopPropagation(); 
+                            if (onRelatedClick) onRelatedClick(rel);
+                        }}
+                        style={{
+                            cursor: 'pointer', 
+                            marginBottom:'15px', 
+                            paddingBottom:'15px', 
+                            borderBottom:'1px solid rgba(255,255,255,0.1)'
+                        }}
+                     >
                          <div style={{fontSize:'0.8rem', color:'#888', marginBottom:'2px'}}>{rel.sources?.name} • {new Date(rel.published_at).toLocaleDateString('is-IS')}</div>
                          <div style={{fontWeight:'bold', fontSize:'1rem'}}>{rel.title}</div>
-                     </a>
+                     </div>
                  ))}
              </div>
            )}
@@ -330,6 +335,7 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose }: NewsC
            </div>
         </div>
       </div>
+      )}
     </section>
   );
 }

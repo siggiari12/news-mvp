@@ -65,9 +65,9 @@ export default function NewsModal({ article, onClose }: NewsModalProps) {
         borderBottom: '1px solid #222',
         flexShrink: 0
       }}>
-        <button onClick={() => setActiveTab('read')} style={tabStyle(activeTab === 'read')}>📄 Fréttin</button>
-        <button onClick={() => setActiveTab('eli10')} style={tabStyle(activeTab === 'eli10')}>🤖 Samantekt</button>
-        <button onClick={() => setActiveTab('related')} style={tabStyle(activeTab === 'related')}>🔗 Tengt efni</button>
+        <button onClick={() => setActiveTab('read')} style={tabStyle(activeTab === 'read')}>Fréttin</button>
+        <button onClick={() => setActiveTab('eli10')} style={tabStyle(activeTab === 'eli10')}>Samantekt</button>
+        <button onClick={() => setActiveTab('related')} style={tabStyle(activeTab === 'related')}>Tengt efni</button>
       </div>
 
       {/* EFNIÐ */}
