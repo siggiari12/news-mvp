@@ -167,10 +167,16 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px',
         pointerEvents: 'none'
       }}>
-                {!showSearch && (
+        {!showSearch && (
             <div style={{
-                display: 'flex', gap: '8px', pointerEvents: 'auto',
-                overflowX: 'auto', whiteSpace: 'nowrap', maxWidth: '100%', padding: '0 20px',
+                display: 'flex', 
+                alignItems: 'center',
+                justifyContent: 'space-between', // Dreifir jafnt
+                width: '100%', // Fyllir út í breiddina
+                pointerEvents: 'auto',
+                overflowX: 'auto', 
+                whiteSpace: 'nowrap', 
+                padding: '0 25px', // Aðeins meira "loft" á hliðunum
                 scrollbarWidth: 'none', msOverflowStyle: 'none', WebkitOverflowScrolling: 'touch'
             }}>
                 <style>{`::-webkit-scrollbar { display: none; }`}</style>
@@ -179,16 +185,14 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
                 <button onClick={() => setActiveCategory('erlent')} style={catStyle(activeCategory === 'erlent')}>ERLENT</button>
                 <button onClick={() => setActiveCategory('sport')} style={catStyle(activeCategory === 'sport')}>SPORT</button>
                 
-                {/* Hér er lagaði stíllinn: */}
                 <button 
                     onClick={() => { setShowSearch(true); setSearchResults([]); }} 
-                    style={{ ...catStyle(false), marginLeft: '0px' }}
+                    style={{ ...catStyle(false), marginLeft: '0' }} // Ekkert margin, space-between sér um það
                 >
                     <SearchIcon/>
                 </button>
             </div>
         )}
-
         {showSearch && (
             <form onSubmit={handleSearch} style={{display: 'flex', gap: '10px', width: '90%', maxWidth: '400px', pointerEvents: 'auto'}}>
                 <div style={{position: 'relative', flex: 1}}>
