@@ -169,7 +169,7 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
       }}>
                 {!showSearch && (
             <div style={{
-                display: 'flex', gap: '10px', pointerEvents: 'auto',
+                display: 'flex', gap: '8px', pointerEvents: 'auto',
                 overflowX: 'auto', whiteSpace: 'nowrap', maxWidth: '100%', padding: '0 20px',
                 scrollbarWidth: 'none', msOverflowStyle: 'none', WebkitOverflowScrolling: 'touch'
             }}>
