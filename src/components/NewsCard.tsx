@@ -234,15 +234,15 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
 
         <div style={{display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.2)', margin: '20px'}}>
           <button onClick={() => setActiveTab('read')} style={tabStyle(activeTab === 'read')}>
-              {isMultiSourceTopic ? '📰 Fréttin' : '📄 Fréttin'}
+              {isMultiSourceTopic ? '📰 Fréttin' : 'Fréttin'}
           </button>
           
           <button onClick={() => setActiveTab('eli10')} style={tabStyle(activeTab === 'eli10')}>
-              🤖 Samantekt
+              Samantekt
           </button>
           
           <button onClick={() => setActiveTab('related')} style={tabStyle(activeTab === 'related')}>
-              🔗 Tengt
+              Tengt efni
           </button>
         </div>
 
