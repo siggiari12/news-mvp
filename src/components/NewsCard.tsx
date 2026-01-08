@@ -134,8 +134,16 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
     <section 
       ref={cardRef}
       className="news-card" 
-      style={{position: 'relative', overflow: 'hidden', height: '100vh', width: '100%'}}
+      style={{
+          position: 'relative', 
+          overflow: 'hidden', 
+          height: '100dvh', // Breyta vh í dvh
+          width: '100%',
+          scrollSnapAlign: 'start', // Tryggja að þetta sé inni
+          scrollSnapStop: 'always'  // <--- STOPPAR HRATT SKROLL
+      }}
     >
+
       {/* BAKGRUNNUR */}
       <div className="bg-image" style={{
         background: branding.bg, zIndex: 0, 
@@ -234,15 +242,15 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
 
         <div style={{display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.2)', margin: '20px'}}>
           <button onClick={() => setActiveTab('read')} style={tabStyle(activeTab === 'read')}>
-              {isMultiSourceTopic ? '📰 Fréttin' : 'Fréttin'}
+              {isMultiSourceTopic ? '📰 Fréttin' : '📄 Fréttin'}
           </button>
           
           <button onClick={() => setActiveTab('eli10')} style={tabStyle(activeTab === 'eli10')}>
-              Samantekt
+              🤖 Samantekt
           </button>
           
           <button onClick={() => setActiveTab('related')} style={tabStyle(activeTab === 'related')}>
-              Tengt efni
+              🔗 Tengt
           </button>
         </div>
 
