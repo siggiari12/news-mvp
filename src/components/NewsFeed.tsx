@@ -182,7 +182,7 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
                 {/* Hér er lagaði stíllinn: */}
                 <button 
                     onClick={() => { setShowSearch(true); setSearchResults([]); }} 
-                    style={{ ...catStyle(false), marginLeft: '10px' }}
+                    style={{ ...catStyle(false), marginLeft: '8px' }}
                 >
                     <SearchIcon/>
                 </button>
