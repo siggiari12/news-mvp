@@ -3,8 +3,7 @@ import Parser from 'rss-parser';
 import crypto from 'crypto';
 import { supabaseServer } from '@/lib/supabase';
 import OpenAI from 'openai';
-import { JSDOM } from 'jsdom';
-import { Readability } from '@mozilla/readability';
+import * as cheerio from 'cheerio'; // <-- BREYTING: Cheerio í stað JSDOM
 
 // Vercel stillingar
 export const maxDuration = 60; 
@@ -25,7 +24,7 @@ function cleanTitle(text: string) {
   return text.toLowerCase().replace(/\|.*$/, '').replace(/-.*$/, '').replace(/[^\w\sáðéíóúýþæö]/g, '').replace(/\s{2,}/g, " ").trim();
 }
 
-// --- UPPFÆRT: Mynda-hreinsun sem skemmir ekki Vísi ---
+// --- UPPFÆRT: Mynda-hreinsun sem skemmir ekki Vísi (Þín útgáfa) ---
 function cleanImageUrl(url: string | null): string | null {
   if (!url) return null;
   
@@ -126,14 +125,13 @@ async function processArticle(title: string, rawText: string, rssSnippet: string
   }
 }
 
-// --- UPPFÆRT: EFNISTAKA & MYNDALEIT (Fake Browser + Jina Image) ---
+// --- UPPFÆRT: EFNISTAKA & MYNDALEIT (CHEERIO ÚTGÁFA) ---
 async function fetchContentAndImage(url: string) {
   let ogImage: string | null = null;
   let html: string | null = null;
   let jinaImage: string | null = null;
 
   // 1. Reynum að sækja HTML (Scraping) með "Fake Browser" headers
-  // Þetta blekkir MBL og Vísi til að halda að við séum Chrome vafri
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 sek timeout
@@ -150,8 +148,9 @@ async function fetchContentAndImage(url: string) {
 
     if (rawRes.ok) {
         html = await rawRes.text();
-        const match = html.match(/<meta property="og:image" content="([^"]+)"/);
-        if (match) ogImage = match[1];
+        // NOTUM CHEERIO Í STAÐ JSDOM (Léttara og virkar á Vercel)
+        const $ = cheerio.load(html);
+        ogImage = $('meta[property="og:image"]').attr('content') || null;
     }
   } catch (e) { console.log("Raw HTML fail:", e); }
 
@@ -163,10 +162,9 @@ async function fetchContentAndImage(url: string) {
         const markdown = await res.text();
         
         // --- NÝTT: Reynum að finna mynd í Markdown frá Jina ---
-        // Jina skilar oft: ![Lýsing](https://slod.a.mynd.jpg)
         const imageMatch = markdown.match(/!\[.*?\]\((.*?)\)/);
         if (imageMatch && !ogImage) {
-            jinaImage = imageMatch[1]; // Grípum myndina ef við fundum hana ekki áðan
+            jinaImage = imageMatch[1]; 
         }
 
         text = markdown
@@ -177,16 +175,13 @@ async function fetchContentAndImage(url: string) {
     }
   } catch (error) { console.log("Jina fail..."); }
 
-  // 3. Readability Fallback
+  // 3. Fallback (CHEERIO í stað Readability)
   if (html && (!text || text.length < 300)) {
       try {
-          const dom = new JSDOM(html, { url });
-          const reader = new Readability(dom.window.document);
-          const article = reader.parse();
-          if (article && article.textContent) {
-              text = article.textContent;
-          }
-      } catch (e) { console.error("Readability fail:", e); }
+          const $ = cheerio.load(html);
+          // Einföld leið til að ná í texta ef Jina klikkar
+          text = $('p').map((i, el) => $(el).text()).get().join('\n\n');
+      } catch (e) { console.error("Cheerio parse fail:", e); }
   }
   
   // Skilum annað hvort ogImage eða jinaImage
