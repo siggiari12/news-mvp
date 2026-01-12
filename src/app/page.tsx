@@ -5,38 +5,36 @@ import NewsFeed from "@/components/NewsFeed";
 export const dynamic = 'force-dynamic';
 
 export default async function Home() {
-  // Notum þinn eigin server client
   const supabase = supabaseServer();
 
-  // 1. Sækjum TOPICS (nákvæmlega eins og NewsFeed gerir)
-  const { data: topics } = await supabase
-    .from('topics')
-    .select(`
-      *,
-      articles (
-        id, title, excerpt, full_text, url, published_at, image_url, sources(name)
-      )
-    `)
-    .order('updated_at', { ascending: false })
-    .limit(20);
+  // Köllum á RPC fallið (Heilann)
+  // Við sendum 'server' sem device_id í bili (persónuleg röðun kemur síðar)
+  const { data: rankedArticles, error } = await supabase
+    .rpc('get_ranked_feed', {
+      device_id_input: 'server',
+      limit_count: 50, // Sækjum nóg til að fylla alla flokka
+      offset_count: 0
+    });
 
-  // 2. Pökkum gögnunum (Format)
-  // Við gerum þetta hér líka til að "Initial Data" passi við það sem NewsFeed býst við
-  const formattedArticles = (topics || []).map((topic: any) => {
-    const mainArticle = topic.articles && topic.articles.length > 0 ? topic.articles[0] : null;
-    
+  if (error) {
+    console.error("Villa við að sækja ranked feed:", error);
+  }
+
+  // Pökkum gögnunum fyrir NewsFeed
+  const formattedArticles = (rankedArticles || []).map((article: any) => {
     return {
-      id: topic.id,
-      topic_id: topic.id,
-      title: topic.title,
-      excerpt: topic.summary || mainArticle?.excerpt,
-      image_url: topic.image_url || mainArticle?.image_url,
-      published_at: topic.updated_at,
-      article_count: topic.article_count,
-      category: topic.category,
-      sources: mainArticle?.sources || { name: 'Samantekt' },
-      full_text: mainArticle?.full_text,
-      url: mainArticle?.url
+      id: article.id,
+      topic_id: article.topic_id,
+      title: article.title,
+      excerpt: article.excerpt, 
+      full_text: article.full_text,
+      image_url: article.image_url,
+      published_at: article.published_at,
+      article_count: article.article_count,
+      category: article.category,
+      importance: article.importance, // Passa að þetta fylgi með
+      sources: { name: article.source_name }, 
+      url: article.url 
     };
   });
 

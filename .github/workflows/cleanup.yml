@@ -1,0 +1,14 @@
+name: Hreinsa gamlar fréttir
+
+on:
+  schedule:
+    - cron: '0 5 * * *'   # Keyrir kl 05:00 á hverjum degi
+  workflow_dispatch:      # Leyfa handvirka keyrslu
+
+jobs:
+  cleanup-job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hreinsa gagnagrunn
+        # Mundu að setja þína slóð hér!
+        run: curl -L https://news-mvp-five.vercel.app/api/cron/cleanup

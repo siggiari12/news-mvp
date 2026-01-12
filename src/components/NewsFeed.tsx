@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import NewsCard from "./NewsCard";
 import { supabaseBrowser } from "@/lib/supabase";
 
-// --- SVG IKON (Fyrir leit og loka) ---
+// --- SVG IKON ---
 const SearchIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
 );
@@ -14,7 +14,9 @@ const CloseIcon = () => (
 export default function NewsFeed({ initialArticles }: { initialArticles: any[] }) {
   const [articles, setArticles] = useState<any[]>(initialArticles || []);
   const [loading, setLoading] = useState(initialArticles ? false : true);
-  const [activeCategory, setActiveCategory] = useState<'all' | 'innlent' | 'erlent' | 'sport'>('all');
+  
+  // Uppfærðir flokkar: 'fyrir_thig' í stað 'all', og 'folk' bætt við
+  const [activeCategory, setActiveCategory] = useState<'fyrir_thig' | 'innlent' | 'erlent' | 'folk' | 'sport'>('fyrir_thig');
 
   // --- LEIT ---
   const [showSearch, setShowSearch] = useState(false);
@@ -23,27 +25,20 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
   const [isSearching, setIsSearching] = useState(false);
 
   // --- HYBRID NAVIGATION STATE ---
-  
-  // 1. In-Place Lestur (fyrir feedið)
   const [readingId, setReadingId] = useState<string | null>(null);
-
-  // 2. Global Reader (fyrir leit og tengt efni)
   const [readingArticle, setReadingArticle] = useState<any | null>(null);
-  const [isReaderExpanded, setIsReaderExpanded] = useState(false); // Stýrir bakhlið í Global Reader
+  const [isReaderExpanded, setIsReaderExpanded] = useState(false); 
 
-  // Ref til að stoppa polling ef notandi er að gera eitthvað
   const isBusyRef = useRef(false);
   useEffect(() => { 
       isBusyRef.current = !!readingId || !!readingArticle; 
   }, [readingId, readingArticle]);
 
-  // --- HELPER: Opna frétt í Global Reader (úr leit/tengdu) ---
   const openGlobalArticle = (article: any) => {
       setReadingArticle(article);
-      setIsReaderExpanded(false); // Byrja á framhlið
+      setIsReaderExpanded(false); 
   };
 
-  // --- HELPER: Opna tengda frétt (Sækir gögn og opnar Global Reader) ---
   const handleRelatedClick = async (relatedArticle: any) => {
       console.log("Sæki fulla frétt fyrir:", relatedArticle.id);
       const { data } = await supabaseBrowser
@@ -66,12 +61,19 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
   const fetchNews = async () => {
     if (isBusyRef.current) return;
 
+    // Sækjum deviceId fyrir persónulega röðun (seinna)
+    const deviceId = localStorage.getItem('vizka_device_id') || 'unknown';
+
     console.log("Sæki nýjar fréttir...");
+    
+    // Köllum á RPC fallið (Heilann) í staðinn fyrir töfluna beint
+    // Þetta tryggir að við fáum raðaðan lista (vinsældir + tími)
     const { data } = await supabaseBrowser
-      .from('topics')
-      .select(`*, articles (id, title, excerpt, full_text, url, published_at, image_url, sources(name))`)
-      .order('updated_at', { ascending: false })
-      .limit(100); 
+      .rpc('get_ranked_feed', { 
+        device_id_input: deviceId,
+        limit_count: 50, // Sækjum nóg til að fylla flokkana
+        offset_count: 0 
+      });
     
     if (data) {
       const formattedArticles = formatData(data);
@@ -102,20 +104,20 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
   };
 
   const formatData = (data: any[]) => {
-      return data.map((topic: any) => {
-        const mainArticle = topic.articles && topic.articles.length > 0 ? topic.articles[0] : null;
+      return data.map((article: any) => {
         return {
-          id: topic.id,
-          topic_id: topic.id,
-          title: topic.title,
-          excerpt: topic.summary || mainArticle?.excerpt,
-          image_url: topic.image_url || mainArticle?.image_url,
-          published_at: topic.updated_at,
-          article_count: topic.article_count,
-          category: topic.category,
-          sources: mainArticle?.sources || { name: 'Samantekt' },
-          full_text: mainArticle?.full_text,
-          url: mainArticle?.url
+          id: article.id,
+          topic_id: article.topic_id,
+          title: article.title,
+          excerpt: article.excerpt,
+          image_url: article.image_url,
+          published_at: article.published_at,
+          article_count: article.article_count,
+          category: article.category,
+          importance: article.importance || 0, // Passa að þetta sé með
+          sources: { name: article.source_name }, // NewsCard býst við object
+          full_text: article.full_text,
+          url: article.url
         };
       });
   };
@@ -123,7 +125,7 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
   useEffect(() => {
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
     window.scrollTo(0, 0);
-    fetchNews();
+    fetchNews(); // Sækjum strax til að fá nýjustu röðun
     
     const handleVisibilityChange = () => {
         if (document.visibilityState === 'visible') {
@@ -135,7 +137,7 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
 
     const channel = supabaseBrowser
       .channel('realtime-topics')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'topics' }, (payload) => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'topics' }, () => {
         fetchNews();
       })
       .subscribe();
@@ -149,9 +151,26 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
     };
   }, []);
 
+  // --- SÍAN (FILTER) ---
   const filteredArticles = articles.filter(article => {
-    if (activeCategory === 'all') return true;
     const cat = (article.category || '').toLowerCase().trim();
+    const imp = article.importance || 0;
+
+    // MIKILVÆGT: Ef frétt er mjög mikilvæg (8+), sýnum hana alltaf í 'fyrir_thig' og 'innlent/erlent'
+    // en pössum að blanda ekki sporti og pólitík nema nauðsyn krefji.
+    
+    if (activeCategory === 'fyrir_thig') return true; // Sýna allt í 'Fyrir þig' (raðað af SQL)
+    
+    if (activeCategory === 'folk') return cat === 'folk';
+    if (activeCategory === 'sport') return cat === 'sport';
+    
+    if (activeCategory === 'innlent') {
+        return cat === 'innlent' || (imp >= 8 && cat !== 'sport' && cat !== 'erlent');
+    }
+    if (activeCategory === 'erlent') {
+        return cat === 'erlent' || (imp >= 8 && cat !== 'sport' && cat !== 'innlent');
+    }
+    
     return cat === activeCategory;
   });
 
@@ -171,23 +190,26 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
             <div style={{
                 display: 'flex', 
                 alignItems: 'center',
-                justifyContent: 'space-between', // Dreifir jafnt
-                width: '100%', // Fyllir út í breiddina
+                justifyContent: 'space-between', 
+                width: '100%', 
                 pointerEvents: 'auto',
                 overflowX: 'auto', 
                 whiteSpace: 'nowrap', 
-                padding: '0 25px', // Aðeins meira "loft" á hliðunum
+                padding: '0 25px', 
                 scrollbarWidth: 'none', msOverflowStyle: 'none', WebkitOverflowScrolling: 'touch'
             }}>
                 <style>{`::-webkit-scrollbar { display: none; }`}</style>
-                <button onClick={() => setActiveCategory('all')} style={catStyle(activeCategory === 'all')}>ALLT</button>
+                
+                {/* UPPFÆRÐIR FLIPAR */}
+                <button onClick={() => setActiveCategory('fyrir_thig')} style={catStyle(activeCategory === 'fyrir_thig')}>FYRIR ÞIG</button>
                 <button onClick={() => setActiveCategory('innlent')} style={catStyle(activeCategory === 'innlent')}>INNLENT</button>
                 <button onClick={() => setActiveCategory('erlent')} style={catStyle(activeCategory === 'erlent')}>ERLENT</button>
+                <button onClick={() => setActiveCategory('folk')} style={catStyle(activeCategory === 'folk')}>FÓLK</button>
                 <button onClick={() => setActiveCategory('sport')} style={catStyle(activeCategory === 'sport')}>SPORT</button>
                 
                 <button 
                     onClick={() => { setShowSearch(true); setSearchResults([]); }} 
-                    style={{ ...catStyle(false), marginLeft: '0' }} // Ekkert margin, space-between sér um það
+                    style={{ ...catStyle(false), marginLeft: '0' }} 
                 >
                     <SearchIcon/>
                 </button>
@@ -210,7 +232,7 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
         )}
       </div>
 
-      {/* --- LISTI (SEARCH VS FEED) --- */}
+      {/* --- LISTI --- */}
       {showSearch ? (
           <div style={{padding: '100px 20px 20px 20px', minHeight: '100vh', background: '#111'}}>
               {isSearching && <p style={{textAlign:'center', color:'#888', marginTop:'20px'}}>Leita...</p>}
@@ -228,7 +250,6 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
               ))}
           </div>
       ) : (
-          // FEED -> Opna In-Place
           filteredArticles.map((article) => (
             <NewsCard 
                 key={article.id} 
@@ -236,7 +257,7 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
                 isExpanded={readingId === article.id} 
                 onOpen={() => setReadingId(article.id)} 
                 onClose={() => setReadingId(null)} 
-                onRelatedClick={handleRelatedClick} // Opnar Global Reader
+                onRelatedClick={handleRelatedClick} 
             />
           ))
       )}
@@ -248,7 +269,7 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
                   key={readingArticle.id} 
                   article={readingArticle}
                   isExpanded={isReaderExpanded} 
-                  showCloseButton={true} // Loka takki á framhlið
+                  showCloseButton={true} 
                   onOpen={() => setIsReaderExpanded(true)}
                   onClose={() => {
                       if (isReaderExpanded) setIsReaderExpanded(false);

@@ -3,6 +3,8 @@ import Parser from 'rss-parser';
 import crypto from 'crypto';
 import { supabaseServer } from '@/lib/supabase';
 import OpenAI from 'openai';
+import { JSDOM } from 'jsdom';
+import { Readability } from '@mozilla/readability';
 
 // Vercel stillingar
 export const maxDuration = 60; 
@@ -13,119 +15,148 @@ const RSS_FEEDS = [
   'https://www.mbl.is/feeds/innlent/',
   'https://www.visir.is/rss/allt',
   'https://www.dv.is/rss/',
-  // Erlendar fréttir
-  'http://feeds.bbci.co.uk/news/world/rss.xml', // BBC
-  'https://rss.nytimes.com/services/xml/rss/nyt/World.xml', // NYT
-  'https://www.theguardian.com/world/rss', // The Guardian
+  'http://feeds.bbci.co.uk/news/world/rss.xml',
+  'https://www.theguardian.com/world/rss',
+  'http://rss.cnn.com/rss/edition_world.rss',
 ];
 
-// --- HJÁLPARFALL: Hreinsar titil fyrir samanburð ---
+// --- HJÁLPARFÖLL ---
 function cleanTitle(text: string) {
-  return text
-    .toLowerCase()
-    .replace(/\|.*$/, '') // Fjarlægja allt eftir | (t.d. "| mbl.is")
-    .replace(/-.*$/, '')  // Fjarlægja allt eftir - (t.d. "- Vísir")
-    .replace(/[^\w\sáðéíóúýþæö]/g, '') // Fjarlægja tákn en halda íslenskum stöfum
-    .replace(/\s{2,}/g, " ") // Fjarlægja auka bil
-    .trim();
+  return text.toLowerCase().replace(/\|.*$/, '').replace(/-.*$/, '').replace(/[^\w\sáðéíóúýþæö]/g, '').replace(/\s{2,}/g, " ").trim();
 }
 
-// --- AI Hreinsun, Flokkun og ÞÝÐING ---
-async function processArticle(title: string, rawText: string) {
+function cleanImageUrl(url: string | null): string | null {
+  if (!url) return null;
+  if (url.includes('mbl.is')) return url.replace('/frimg/th/', '/frimg/').replace('/crop/', '/');
+  if (url.includes('visir.is') && (url.includes('?w=') || url.includes('&w='))) return url.split('?')[0];
+  if (url.includes('bbci.co.uk')) return url.replace(/\/news\/\d+\//, '/news/976/'); 
+  if (url.includes('theguardian.com') && url.includes('width=')) return url.replace(/width=\d+/, 'width=1000').replace(/quality=\d+/, 'quality=85');
+  return url;
+}
+
+// --- HARÐARI HREINSUN Á TEXTA ---
+function aggressiveClean(text: string): string {
+    return text.split('\n')
+        .map(line => line.trim())
+        .filter(line => {
+            const l = line.toLowerCase();
+            if (l.length < 20) return false; 
+            if (l.includes('published time:')) return false;
+            if (l.includes('markdown content:')) return false;
+            if (l.includes('url source:')) return false;
+            if (l.includes('hafa samband')) return false;
+            if (l.includes('áskrift')) return false;
+            if (l.includes('skráðu þig')) return false;
+            if (l.includes('mest lesið')) return false;
+            if (l.includes('loka leit')) return false;
+            if (l.includes('search for:')) return false;
+            if (l.includes('video ad feedback')) return false;
+            if (l.includes('cookie')) return false;
+            return true;
+        })
+        .join('\n');
+}
+
+// --- AI SAMANTEKT MEÐ IMPORTANCE ---
+async function processArticle(title: string, rawText: string, rssSnippet: string, defaultCategory: string) {
   try {
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
     
-    // Styttum í 5000 stafi
-    const textSample = rawText.substring(0, 5000); 
+    // 1. Hreinsum textann HARKALEGA áður en AI fær hann
+    const cleanedInput = aggressiveClean(rawText).substring(0, 15000);
+
+    // Ef textinn er tómur eftir hreinsun, notum RSS snippet
+    if (cleanedInput.length < 100) throw new Error("Texti of stuttur eftir hreinsun");
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4o", 
       messages: [
         {
           role: "system",
-          content: `Þú ert fréttaritari. Verkefni þitt er að hreinsa, flokka og þýða fréttir.
+          content: `Þú ert ritstjóri.
           
-          OUTPUT JSON snið:
+          OUTPUT JSON:
           {
-            "clean_text": "Hreinn texti fréttarinnar. Ef fréttin er á erlendu tungumáli, ÞÝDDU hana yfir á ÍSLENSKU. Ef hún er á íslensku, haltu henni á íslensku (óbreyttri).",
-            "category": "innlent" | "erlent" | "sport",
-            "translated_title": "Titillinn á ÍSLENSKU. Ef upprunalegi titillinn er á íslensku, skilaðu honum ÓBREYTTUM. Ef hann er á ensku, þýddu hann."
+            "summary": "3-4 málsgreina samantekt. Hlutlaus og grípandi. EKKI innihalda valmyndir eða auglýsingar.",
+            "category": "innlent" | "erlent" | "sport" | "folk",
+            "importance": "Heiltala 1-10. (10=Heimsfrétt/Neyðarástand, 8=Stórpólitík, 5=Venjuleg frétt, 1=Köttur í tré/Léttmeti).",
+            "clean_title": "Titillinn"
           }
 
-          REGLUR FYRIR FLOKKUN (MIKILVÆGT):
-          1. SPORT: Allt sem tengist íþróttum (fótbolti, handbolti, golf, formúla 1, landslið). Þetta gildir LÍKA ef fréttin er um íslenskt landslið eða íslenska leikmenn. Það er ALLTAF 'sport', aldrei 'innlent'.
-          2. ERLENT: Fréttir frá útlöndum (BBC, NYT, Guardian) sem eru EKKI íþróttir.
-          3. INNLENT: Íslenskar fréttir (RÚV, MBL, Vísir) sem eru EKKI íþróttir (t.d. stjórnmál, veður, samfélag).
+          REGLUR:
+          1. FLOKKUN: 
+             - "folk": Frægt fólk, slúður, lífsstíll, mannlegar sögur (Smartland/DV efni).
+             - "sport": Íþróttir.
+             - "erlent": Útlönd.
+             - "innlent": Allt annað íslenskt.
+          2. IMPORTANCE: Vertu harður. Bara raunverulega stórar fréttir fá 8+. Slúður fær sjaldan yfir 3.
           `
         },
         {
           role: "user",
-          content: `Titill: ${title}\n\nHrár texti:\n${textSample}`
+          content: `Titill: ${title}\n\nTexti:\n${cleanedInput}`
         }
       ],
-      temperature: 0, // Lægra hitastig fyrir meiri nákvæmni í flokkun
+      temperature: 0.3, 
       response_format: { type: "json_object" }
     });
 
     const result = JSON.parse(response.choices[0].message.content || '{}');
     
     return {
-        text: result.clean_text || rawText, 
-        category: result.category || 'erlent',
-        title: result.translated_title || title // Notum þýddan titil ef hann er til
+        text: result.summary || rssSnippet, 
+        category: result.category || defaultCategory, 
+        importance: result.importance || 0, // Nýtt
+        title: result.clean_title || title 
     };
 
   } catch (e) {
-    console.error("AI vinnsla mistókst:", e);
-    return { text: rawText, category: 'innlent', title: title };
+    console.error("AI fail:", e);
+    // FALLBACK: Ef allt klikkar, notum RSS snippet (ekki drasl textann)
+    return { text: rssSnippet, category: defaultCategory, importance: 0, title: title };
   }
 }
 
-// --- JINA READER & MYNDAVINNSLA ---
+// --- EFNISTAKA ---
 async function fetchContentAndImage(url: string) {
   let ogImage: string | null = null;
+  let html: string | null = null;
 
   try {
-    // 1. Reynum fyrst að finna og:image sjálf (hratt og öruggt)
-    try {
-        const rawRes = await fetch(url, { headers: { 'User-Agent': 'facebookexternalhit/1.1' } });
-        if (rawRes.ok) {
-            const html = await rawRes.text();
-            
-            // A. Venjulegt OG Image
-            const match = html.match(/<meta property="og:image" content="([^"]+)"/);
-            if (match) ogImage = match[1];
-
-            // B. MBL SÉRSTÖK LAUSN
-            if (url.includes('mbl.is')) {
-                const mblMatch = html.match(/https?:\\?\/\\?\/[^"'\s]*arvakur[^"'\s]*frimg[^"'\s]*\.jpg/gi);
-                if (mblMatch && mblMatch.length > 0) {
-                    ogImage = mblMatch[0].replace(/\\/g, '');
-                }
-            }
-        }
-    } catch (e) {
-      console.log("Gat ekki sótt raw HTML, held áfram í Jina...");
+    const rawRes = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36' }});
+    if (rawRes.ok) {
+        html = await rawRes.text();
+        const match = html.match(/<meta property="og:image" content="([^"]+)"/);
+        if (match) ogImage = match[1];
     }
+  } catch (e) { console.log("Raw HTML fail:", e); }
 
-    // 2. Jina fyrir texta
+  // Jina
+  try {
     const res = await fetch(`https://r.jina.ai/${url}`);
-    
-    if (!res.ok) return { text: null, image: ogImage };
+    if (res.ok) {
+        const markdown = await res.text();
+        let text = markdown
+            .replace(/!\[.*?\]\(.*?\)/g, '') // Myndir
+            .replace(/\[(.*?)\]\(.*?\)/g, '$1') // Linkar
+            .replace(/[#*`_]/g, '') // Markdown drasl
+            .trim();
+        if (text.length > 300) return { text: text, image: ogImage };
+    }
+  } catch (error) { console.log("Jina fail..."); }
 
-    const markdown = await res.text();
-    
-    let text = markdown
-        .replace(/!\[.*?\]\(.*?\)/g, '') 
-        .replace(/\[.*?\]\(.*?\)/g, '$1')
-        .replace(/[#*`_]/g, '')
-        .trim();
-
-    return { text: text.substring(0, 5000), image: ogImage }; 
-
-  } catch (error) {
-    return { text: null, image: ogImage };
+  // Readability Fallback
+  if (html) {
+      try {
+          const dom = new JSDOM(html, { url });
+          const reader = new Readability(dom.window.document);
+          const article = reader.parse();
+          if (article && article.textContent) {
+              return { text: article.textContent, image: ogImage };
+          }
+      } catch (e) { console.error("Readability fail:", e); }
   }
+  return { text: null, image: ogImage };
 }
 
 async function generateEmbedding(text: string) {
@@ -143,107 +174,72 @@ async function generateEmbedding(text: string) {
 async function assignTopic(supa: any, articleId: string, title: string, embedding: any | null, imageUrl: string | null, category: string) {
   let topicId = null;
   const cleanedTitle = cleanTitle(title);
-
-  // 1. HEIMSKI TÉKKINN (Grípur augljós mál strax)
-  const { data: recentTopics } = await supa
-    .from('topics')
-    .select('id, title')
-    .order('updated_at', { ascending: false })
-    .limit(50);
-
+  const { data: recentTopics } = await supa.from('topics').select('id, title').order('updated_at', { ascending: false }).limit(50);
   if (recentTopics) {
       for (const t of recentTopics) {
-          if (cleanTitle(t.title) === cleanedTitle) {
-              console.log(`🎯 Fann nákvæman titil-match! "${title}"`);
-              topicId = t.id;
-              break;
-          }
+          if (cleanTitle(t.title) === cleanedTitle) { topicId = t.id; break; }
       }
   }
-
-  // 2. SNJALLI TÉKKINN (Vektor leit)
   if (!topicId && embedding) {
-      const { data: similarArticles } = await supa.rpc('match_articles_for_topic', {
-        query_embedding: embedding,
-        match_threshold: 0.75, // Lækkaður þröskuldur (eins og þú varst með)
-        match_count: 1
-      });
-
-      if (similarArticles && similarArticles.length > 0) {
-        console.log(`✅ Fann AI match! "${title}"`);
-        topicId = similarArticles[0].topic_id;
-      }
+      const { data: similarArticles } = await supa.rpc('match_articles_for_topic', { query_embedding: embedding, match_threshold: 0.75, match_count: 1 });
+      if (similarArticles && similarArticles.length > 0) topicId = similarArticles[0].topic_id;
   }
-
-  // 3. UPDATE / INSERT
   if (topicId) {
     const { data: topic } = await supa.from('topics').select('article_count').eq('id', topicId).single();
-    if (topic) {
-        await supa.from('topics').update({ 
-            article_count: topic.article_count + 1,
-            updated_at: new Date().toISOString()
-        }).eq('id', topicId);
-    }
+    if (topic) await supa.from('topics').update({ article_count: topic.article_count + 1, updated_at: new Date().toISOString() }).eq('id', topicId);
   } else {
-    console.log(`🆕 Bý til nýtt topic: "${title}"`);
-    const { data: newTopic } = await supa.from('topics').insert({
-      title: title, 
-      summary: null, 
-      category: category,
-      image_url: imageUrl,
-      article_count: 1
-    }).select().single();
+    const { data: newTopic } = await supa.from('topics').insert({ title: title, category: category, image_url: cleanImageUrl(imageUrl), article_count: 1 }).select().single();
     if (newTopic) topicId = newTopic.id;
   }
-
-  if (topicId) {
-    await supa.from('articles').update({ topic_id: topicId }).eq('id', articleId);
-  }
+  if (topicId) await supa.from('articles').update({ topic_id: topicId }).eq('id', articleId);
 }
 
-// --- TÚRBÓ GET FALL (Parallel Processing) ---
+// --- MAIN GET ---
 export async function GET() {
   const supa = supabaseServer();
-  const parser = new Parser({
-    customFields: { item: [['media:content', 'media'], ['media:thumbnail', 'thumbnail'], ['enclosure', 'enclosure']] },
-  });
-
+  const parser = new Parser({ customFields: { item: [['media:content', 'media'], ['media:thumbnail', 'thumbnail'], ['enclosure', 'enclosure']] }});
   const startTime = Date.now();
   let totalSaved = 0;
 
   try {
-    // 1. Vinnum alla miðla SAMTÍMIS (Parallel)
     const feedPromises = RSS_FEEDS.map(async (feedUrl) => {
       try {
         const feed = await parser.parseURL(feedUrl);
-        
         let sourceName = feed.title || 'Fréttir';
+        let defaultCategory = 'innlent'; 
+        
         if (feedUrl.includes('mbl')) sourceName = 'MBL';
         if (feedUrl.includes('visir')) sourceName = 'Vísir';
         if (feedUrl.includes('dv')) sourceName = 'DV';
-        if (feedUrl.includes('bbc')) sourceName = 'BBC';
-        if (feedUrl.includes('nytimes')) sourceName = 'NYT';
-        if (feedUrl.includes('guardian')) sourceName = 'The Guardian';
+        if (feedUrl.includes('ruv')) sourceName = 'RÚV';
+        if (feedUrl.includes('bbc')) { sourceName = 'BBC'; defaultCategory = 'erlent'; }
+        if (feedUrl.includes('cnn')) { sourceName = 'CNN'; defaultCategory = 'erlent'; }
+        if (feedUrl.includes('guardian')) { sourceName = 'The Guardian'; defaultCategory = 'erlent'; }
 
+        // --- LAGFÆRÐ SOURCE LOGIC ---
+        // 1. Reynum að finna miðil eftir RSS slóð
         let { data: source } = await supa.from('sources').select('id').eq('rss_url', feedUrl).maybeSingle();
         
         if (!source) {
+            // 2. Ef fannst ekki á slóð, reynum að finna eftir NAFNI (til að koma í veg fyrir tvíverknað)
             const { data: existingByName } = await supa.from('sources').select('id').eq('name', sourceName).maybeSingle();
+            
             if (existingByName) {
+                // FANNST EFTIR NAFNI! -> Uppfærum slóðina í grunninum
+                await supa.from('sources').update({ rss_url: feedUrl }).eq('id', existingByName.id);
                 source = existingByName;
             } else {
-                const { data: inserted } = await supa.from('sources').insert({ name: sourceName, rss_url: feedUrl }).select().single();
-                source = inserted;
+                // Fannst hvorki eftir slóð né nafni -> Búum til nýjan
+                const { data: newSource } = await supa.from('sources').insert({ name: sourceName, rss_url: feedUrl }).select().single();
+                source = newSource;
             }
         }
 
         if (source) {
             const items = feed.items?.slice(0, 10) || [];
-            
             const itemPromises = items.map(async (item) => {
                 const url = item.link || '';
                 if (!url) return 0;
-                
                 const { data: existing } = await supa.from('articles').select('id').eq('url', url).maybeSingle();
                 if (existing) return 0;
 
@@ -254,59 +250,52 @@ export async function GET() {
 
                 const scraped = await fetchContentAndImage(url);
                 if (!imageUrl && scraped.image) imageUrl = scraped.image;
+                imageUrl = cleanImageUrl(imageUrl);
 
-                const processed = await processArticle(item.title || '', scraped.text || item.contentSnippet || '');
+                const processed = await processArticle(
+                    item.title || '', 
+                    scraped.text || item.contentSnippet || '', 
+                    item.contentSnippet || '', 
+                    defaultCategory
+                );
+
+                const embeddingText = (processed.title || '') + " " + (scraped.text || "").substring(0, 2000);
+                const embedding = await generateEmbedding(embeddingText);
 
                 const hash = crypto.createHash('md5').update(((item.title || '') + url).toLowerCase()).digest('hex');
-                const textWithLink = processed.text + `\n\n[Lesa nánar á vef miðils](${url})`;
-
+                
                 const articleData = {
                     source_id: source.id,
                     title: processed.title, 
                     excerpt: (item.contentSnippet || '').substring(0, 300),
-                    full_text: textWithLink, 
+                    full_text: processed.text, 
                     url: url,
                     published_at: item.isoDate ? new Date(item.isoDate) : new Date(),
-                    language: 'is', 
+                    language: defaultCategory === 'erlent' ? 'en' : 'is',
                     image_url: imageUrl,
                     hash: hash,
-                    category: processed.category
+                    category: processed.category,
+                    importance: processed.importance 
                 };
 
                 const { data: saved, error } = await supa.from('articles').upsert(articleData, { onConflict: 'url' }).select().single();
                 
-                if (!error && saved) {
-                    const embedding = await generateEmbedding((processed.title || '') + " " + (processed.text || "").substring(0, 500));
-                    
-                    if (embedding) {
-                        await supa.from('article_embeddings').upsert({ article_id: saved.id, embedding });
-                        await assignTopic(supa, saved.id, processed.title, embedding, imageUrl, processed.category);
-                    }
+                if (!error && saved && embedding) {
+                    await supa.from('article_embeddings').upsert({ article_id: saved.id, embedding });
+                    await assignTopic(supa, saved.id, processed.title, embedding, imageUrl, processed.category);
                     return 1;
                 }
                 return 0;
             });
-
-            // HÉR VAR VILLAN: Bætti við ": number" til að laga týpuna
             const results = await Promise.all(itemPromises);
             return results.reduce((a: number, b) => (a || 0) + (b || 0), 0);
         }
         return 0;
-      } catch (e) {
-        console.error(`Villa í feed ${feedUrl}:`, e);
-        return 0;
-      }
+      } catch (e) { console.error(`Villa í feed ${feedUrl}:`, e); return 0; }
     });
-
-    // HÉR LÍKA: Bætti við ": number"
     const results = await Promise.all(feedPromises);
     totalSaved = results.reduce((a: number, b) => a + b, 0);
-
     const duration = (Date.now() - startTime) / 1000;
     return NextResponse.json({ success: true, count: totalSaved, time: `${duration}s` });
-    
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+  } catch (error: any) { return NextResponse.json({ error: error.message }, { status: 500 }); }
 }
-
