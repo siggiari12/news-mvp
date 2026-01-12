@@ -25,10 +25,19 @@ function cleanTitle(text: string) {
   return text.toLowerCase().replace(/\|.*$/, '').replace(/-.*$/, '').replace(/[^\w\sáðéíóúýþæö]/g, '').replace(/\s{2,}/g, " ").trim();
 }
 
+// --- UPPFÆRT: Mynda-hreinsun sem skemmir ekki Vísi ---
 function cleanImageUrl(url: string | null): string | null {
   if (!url) return null;
+  
+  // MBL: Reynum að fá stærri mynd
   if (url.includes('mbl.is')) return url.replace('/frimg/th/', '/frimg/').replace('/crop/', '/');
-  if (url.includes('visir.is') && (url.includes('?w=') || url.includes('&w='))) return url.split('?')[0];
+  
+  // VÍSIR: Hér var villan áður. Við viljum halda 'w=' en breyta í 1200.
+  if (url.includes('visir.is')) {
+      if (url.includes('w=')) return url.replace(/w=\d+/, 'w=1200');
+      return url;
+  }
+
   if (url.includes('bbci.co.uk')) return url.replace(/\/news\/\d+\//, '/news/976/'); 
   if (url.includes('theguardian.com') && url.includes('width=')) return url.replace(/width=\d+/, 'width=1000').replace(/quality=\d+/, 'quality=85');
   return url;
@@ -65,8 +74,8 @@ async function processArticle(title: string, rawText: string, rssSnippet: string
     // 1. Hreinsum textann HARKALEGA áður en AI fær hann
     const cleanedInput = aggressiveClean(rawText).substring(0, 15000);
 
-    // Ef textinn er tómur eftir hreinsun, notum RSS snippet
-    if (cleanedInput.length < 100) throw new Error("Texti of stuttur eftir hreinsun");
+    // Breytt í 50 stafi til öryggis svo við missum ekki stuttar fréttir
+    if (cleanedInput.length < 50) throw new Error("Texti of stuttur eftir hreinsun");
 
     const response = await openai.chat.completions.create({
       model: "gpt-4o", 
@@ -117,13 +126,28 @@ async function processArticle(title: string, rawText: string, rssSnippet: string
   }
 }
 
-// --- EFNISTAKA ---
+// --- UPPFÆRT: EFNISTAKA & MYNDALEIT (Fake Browser + Jina Image) ---
 async function fetchContentAndImage(url: string) {
   let ogImage: string | null = null;
   let html: string | null = null;
+  let jinaImage: string | null = null;
 
+  // 1. Reynum að sækja HTML (Scraping) með "Fake Browser" headers
+  // Þetta blekkir MBL og Vísi til að halda að við séum Chrome vafri
   try {
-    const rawRes = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36' }});
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 sek timeout
+
+    const rawRes = await fetch(url, { 
+        signal: controller.signal,
+        headers: { 
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Referer': 'https://www.google.com/'
+        }
+    });
+    clearTimeout(timeoutId);
+
     if (rawRes.ok) {
         html = await rawRes.text();
         const match = html.match(/<meta property="og:image" content="([^"]+)"/);
@@ -131,32 +155,42 @@ async function fetchContentAndImage(url: string) {
     }
   } catch (e) { console.log("Raw HTML fail:", e); }
 
-  // Jina
+  // 2. Jina (Backup fyrir texta OG myndir)
+  let text = null;
   try {
     const res = await fetch(`https://r.jina.ai/${url}`);
     if (res.ok) {
         const markdown = await res.text();
-        let text = markdown
+        
+        // --- NÝTT: Reynum að finna mynd í Markdown frá Jina ---
+        // Jina skilar oft: ![Lýsing](https://slod.a.mynd.jpg)
+        const imageMatch = markdown.match(/!\[.*?\]\((.*?)\)/);
+        if (imageMatch && !ogImage) {
+            jinaImage = imageMatch[1]; // Grípum myndina ef við fundum hana ekki áðan
+        }
+
+        text = markdown
             .replace(/!\[.*?\]\(.*?\)/g, '') // Myndir
             .replace(/\[(.*?)\]\(.*?\)/g, '$1') // Linkar
             .replace(/[#*`_]/g, '') // Markdown drasl
             .trim();
-        if (text.length > 300) return { text: text, image: ogImage };
     }
   } catch (error) { console.log("Jina fail..."); }
 
-  // Readability Fallback
-  if (html) {
+  // 3. Readability Fallback
+  if (html && (!text || text.length < 300)) {
       try {
           const dom = new JSDOM(html, { url });
           const reader = new Readability(dom.window.document);
           const article = reader.parse();
           if (article && article.textContent) {
-              return { text: article.textContent, image: ogImage };
+              text = article.textContent;
           }
       } catch (e) { console.error("Readability fail:", e); }
   }
-  return { text: null, image: ogImage };
+  
+  // Skilum annað hvort ogImage eða jinaImage
+  return { text: text, image: ogImage || jinaImage };
 }
 
 async function generateEmbedding(text: string) {
@@ -216,20 +250,14 @@ export async function GET() {
         if (feedUrl.includes('cnn')) { sourceName = 'CNN'; defaultCategory = 'erlent'; }
         if (feedUrl.includes('guardian')) { sourceName = 'The Guardian'; defaultCategory = 'erlent'; }
 
-        // --- LAGFÆRÐ SOURCE LOGIC ---
-        // 1. Reynum að finna miðil eftir RSS slóð
+        // --- SOURCE LOGIC (ÓBREYTT) ---
         let { data: source } = await supa.from('sources').select('id').eq('rss_url', feedUrl).maybeSingle();
-        
         if (!source) {
-            // 2. Ef fannst ekki á slóð, reynum að finna eftir NAFNI (til að koma í veg fyrir tvíverknað)
             const { data: existingByName } = await supa.from('sources').select('id').eq('name', sourceName).maybeSingle();
-            
             if (existingByName) {
-                // FANNST EFTIR NAFNI! -> Uppfærum slóðina í grunninum
                 await supa.from('sources').update({ rss_url: feedUrl }).eq('id', existingByName.id);
                 source = existingByName;
             } else {
-                // Fannst hvorki eftir slóð né nafni -> Búum til nýjan
                 const { data: newSource } = await supa.from('sources').insert({ name: sourceName, rss_url: feedUrl }).select().single();
                 source = newSource;
             }
@@ -243,13 +271,19 @@ export async function GET() {
                 const { data: existing } = await supa.from('articles').select('id').eq('url', url).maybeSingle();
                 if (existing) return 0;
 
+                // 1. Reynum að finna mynd í RSS
                 let imageUrl = null;
                 if (item.media && item.media['$'] && item.media['$'].url) imageUrl = item.media['$'].url;
                 else if (item.thumbnail && item.thumbnail['$'] && item.thumbnail['$'].url) imageUrl = item.thumbnail['$'].url;
                 else if (item.enclosure && item.enclosure.url) imageUrl = item.enclosure.url;
 
+                // 2. Sækjum síðuna (Scraping + Jina)
                 const scraped = await fetchContentAndImage(url);
+                
+                // Ef engin RSS mynd, notum scraped mynd (ogImage eða Jina mynd)
                 if (!imageUrl && scraped.image) imageUrl = scraped.image;
+                
+                // Hreinsum URL (Vísir/MBL fix)
                 imageUrl = cleanImageUrl(imageUrl);
 
                 const processed = await processArticle(
