@@ -151,9 +151,18 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
       </div>
 
       {displayArticle.image_url && (
-        <img src={displayArticle.image_url} alt="" className="bg-image" style={{ 
-          zIndex: 1, filter: isExpanded ? 'brightness(0.4) blur(15px)' : 'none', transition: 'all 0.5s ease'
-        }} onError={(e) => (e.target as HTMLElement).style.display = 'none'} />
+        <img 
+            src={displayArticle.image_url} 
+            alt="" 
+            className="bg-image" 
+            // --- HÉR ER BREYTINGIN (Fyrir MBL) ---
+            referrerPolicy="no-referrer"
+            // -------------------------------------
+            style={{ 
+                zIndex: 1, filter: isExpanded ? 'brightness(0.4) blur(15px)' : 'none', transition: 'all 0.5s ease'
+            }} 
+            onError={(e) => (e.target as HTMLElement).style.display = 'none'} 
+        />
       )}
       
       <div style={{
