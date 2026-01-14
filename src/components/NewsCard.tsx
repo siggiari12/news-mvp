@@ -218,7 +218,7 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
       {/* BAKSÍÐA (MODAL) */}
       {isExpanded && (
       <div style={{
-        position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 4,
+        position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 950,
         display: 'flex', flexDirection: 'column', pointerEvents: 'auto', 
         // BREYTING: Padding Top 90px svo headerinn (hamborgari/search) sjáist
         paddingTop: '90px', 
@@ -227,11 +227,48 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
       }}>
         
         {/* Titill efst (undir header) */}
-        <div style={{padding: '0 20px', marginBottom:'10px'}}>
-           <h2 style={{fontSize: '1.2rem', fontWeight: 'bold', margin: 0, textShadow: '0 2px 10px rgba(0,0,0,0.5)'}}>{article.title}</h2>
+        <div style={{
+          padding: '0 10px', 
+          marginBottom:'10px',
+          display: 'flex', 
+          alignItems: 'flex-start', 
+          justifyContent: 'space-between',
+          gap: '15px'
+        }}>
+          <h2 style={{
+              fontSize: '1.2rem', 
+              fontWeight: 'bold', 
+              margin: 0, 
+              textShadow: '0 2px 10px rgba(0,0,0,0.5)',
+              flex: 1
+          }}>
+              {article.title}
+          </h2>
+          <button 
+             onClick={(e) => { e.stopPropagation(); onClose(); }}
+             style={{
+                 background: 'rgba(255,255,255,0.1)', /* Smá bakgrunnur svo hann sjáist vel */
+                 border: 'none', 
+                 borderRadius: '50%', 
+                 width: '36px', 
+                 height: '36px', 
+                 display: 'flex', 
+                 alignItems: 'center', 
+                 justifyContent: 'center', 
+                 cursor: 'pointer',
+                 color: 'white',
+                 flexShrink: 0,            /* Passar að takkinn klessist ekki saman */
+                 backdropFilter: 'blur(4px)'
+             }}
+            >
+             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+               <line x1="18" y1="6" x2="6" y2="18"></line>
+               <line x1="6" y1="6" x2="18" y2="18"></line>
+             </svg>
+           </button>
         </div>
 
-        <div style={{display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.2)', margin: '0 20px 20px 20px'}}>
+        <div style={{display: 'flex', borderBottom: '1px solid rgba(255, 255, 255, 0.2)', margin: '0 20px 20px 20px'}}>
           <button onClick={() => setActiveTab('read')} style={tabStyle(activeTab === 'read')}>
               Fréttin
           </button>
