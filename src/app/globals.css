@@ -65,11 +65,11 @@ body::before {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  top: 10px; /* Staðsetning frá toppi */
+  top: 15px; /* Staðsetning frá toppi */
   z-index: 1001;
 }
 .main-logo {
-  height: 40px; /* Stilltu hæðina á lógóinu hér */
+  height: 30px; /* Stilltu hæðina á lógóinu hér */
   width: auto;  /* Viðheldur hlutföllum */
   display: block;
 }

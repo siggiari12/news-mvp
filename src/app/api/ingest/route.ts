@@ -77,7 +77,7 @@ async function processArticle(title: string, rawText: string, rssSnippet: string
     if (cleanedInput.length < 50) throw new Error("Texti of stuttur eftir hreinsun");
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o", 
+      model: "gpt-4o-mini", 
       messages: [
         {
           role: "system",
