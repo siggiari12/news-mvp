@@ -2,14 +2,21 @@
 import { useState, useEffect, useRef } from "react";
 import { supabaseBrowser } from "@/lib/supabase";
 
-// --- NÝTT: FINGERPRINTING FALL ---
+// Hjálparfall fyrir liti á miðlum (ÓBREYTT)
+const getSourceColor = (name: string) => {
+    const n = (name || '').toLowerCase();
+    if (n.includes('mbl')) return '#00477e';
+    if (n.includes('vísir') || n.includes('visir')) return '#ed1c24';
+    if (n.includes('rúv') || n.includes('ruv')) return '#000000';
+    if (n.includes('dv')) return '#d00000';
+    if (n.includes('heimildin')) return '#222'; 
+    return 'rgba(255,255,255,0.1)';
+};
+
+// --- FINGERPRINTING FALL (ÓBREYTT) ---
 function getDeviceId() {
   if (typeof window === 'undefined') return null;
-  
-  // Reynum að ná í ID úr geymslu
   let id = localStorage.getItem('vizka_device_id');
-  
-  // Ef ekki til, búum til nýtt (Random string)
   if (!id) {
     id = 'dev_' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
     localStorage.setItem('vizka_device_id', id);
@@ -17,7 +24,7 @@ function getDeviceId() {
   return id;
 }
 
-// 1. BRANDING (Komið aftur í gamla horfið, engir litir)
+// BRANDING (ÓBREYTT)
 const getBranding = (sourceName: string | undefined) => {
   const name = (sourceName || '').toLowerCase();
   if (name.includes('mbl')) return { bg: 'hsl(240deg 100% 23.53%)', logo: '/mbl.png', scale: '80%' };
@@ -39,21 +46,16 @@ interface NewsCardProps {
 export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelatedClick, showCloseButton }: NewsCardProps) {
   if (!article) return null;
 
-  // Fjarlægði 'eli10'
   const [activeTab, setActiveTab] = useState<'read' | 'related'>('read');
-  
   const [unifiedStory, setUnifiedStory] = useState<string | null>(null);
   const [loadingText, setLoadingText] = useState(false);
-
   const [topicArticles, setTopicArticles] = useState<any[]>([]);
   const [relatedArticles, setRelatedArticles] = useState<any[]>([]);
   const [loadingRelated, setLoadingRelated] = useState(false);
-  
   const [formattedTime, setFormattedTime] = useState<string>('');
   
   const cardRef = useRef<HTMLElement>(null);
   const supabase = supabaseBrowser; 
-
   const isMultiSourceTopic = article.article_count && article.article_count > 1;
   const sourceName = article.sources?.name || (isMultiSourceTopic ? 'Samantekt' : '');
   const branding = getBranding(sourceName);
@@ -65,8 +67,11 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
 
   useEffect(() => {
     if (isExpanded) {
-      if (topicArticles.length === 0 && isMultiSourceTopic) fetchTopicArticles();
+      // Ef topic, sækjum greinar
+      if (isMultiSourceTopic && topicArticles.length === 0) fetchTopicArticles();
+      // Ef topic og vantar samantekt, sækjum hana
       if (isMultiSourceTopic && !unifiedStory) fetchSummary(); 
+      // Sækjum tengt efni
       if (relatedArticles.length === 0) fetchRelated();
     }
   }, [isExpanded, activeTab]); 
@@ -76,7 +81,8 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
       .from('articles')
       .select('*, sources(name)')
       .eq('topic_id', article.id)
-      .order('published_at', { ascending: false });
+      // BREYTING: ascending: true = Elsta fyrst (sá sem kom fyrst inn er efstur)
+      .order('published_at', { ascending: true });
     if (data) setTopicArticles(data);
   };
 
@@ -109,25 +115,29 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
     } catch (e) { console.error(e); } finally { setLoadingRelated(false); }
   };
 
-  // --- UPPFÆRT MEÐ DEVICE ID ---
-  const handleOutboundClick = (url: string) => {
+  const handleOutboundClick = (url: string, specificSource?: string) => {
       try {
-          const deviceId = getDeviceId(); // Sækjum ID
-          
+          const deviceId = getDeviceId();
           fetch('/api/track-click', { 
               method: 'POST', 
               body: JSON.stringify({ 
                   articleId: article.id, 
-                  source: sourceName,
-                  deviceId: deviceId // Sendum með
+                  source: specificSource || sourceName,
+                  deviceId: deviceId 
               }) 
           });
       } catch(e) {}
       window.open(url, '_blank');
   };
 
-  const displayArticle = topicArticles.length > 0 ? topicArticles[0] : article;
-  const summaryText = isMultiSourceTopic ? unifiedStory : article.full_text;
+  // Ákveða hvaða greinar á að sýna í listanum (Topic listi eða stök grein)
+  const sourceList = topicArticles.length > 0 ? topicArticles : [article];
+  
+  // Ákveða hvaða mynd á að sýna (fyrsta myndin í topicinu eða aðal myndin)
+  const displayImage = (topicArticles.length > 0 ? topicArticles[0].image_url : article.image_url) || article.image_url;
+  
+  // Ákveða texta: Unified story (AI) ef til, annars full_text/excerpt
+  const summaryText = unifiedStory || article.full_text || article.excerpt;
 
   return (
     <section 
@@ -138,7 +148,7 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
           scrollSnapAlign: 'start', scrollSnapStop: 'always'
       }}
     >
-      {/* BAKGRUNNUR */}
+      {/* BAKGRUNNUR (ÓBREYTT) */}
       <div className="bg-image" style={{
         background: branding.bg, zIndex: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
         filter: isExpanded ? 'brightness(0.4) blur(15px)' : 'none', transition: 'all 0.5s ease'
@@ -150,14 +160,12 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
           <h1 style={{fontSize: '4rem', color: 'rgba(255,255,255,0.2)', display: branding.logo ? 'none' : 'block'}}>{sourceName}</h1>
       </div>
 
-      {displayArticle.image_url && (
+      {displayImage && (
         <img 
-            src={displayArticle.image_url} 
+            src={displayImage} 
             alt="" 
             className="bg-image" 
-            // --- HÉR ER BREYTINGIN (Fyrir MBL) ---
             referrerPolicy="no-referrer"
-            // -------------------------------------
             style={{ 
                 zIndex: 1, filter: isExpanded ? 'brightness(0.4) blur(15px)' : 'none', transition: 'all 0.5s ease'
             }} 
@@ -171,7 +179,7 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
           opacity: isExpanded ? 0 : 1, transition: 'opacity 0.3s ease', pointerEvents: 'none' 
       }}></div>
 
-      {/* LOKA TAKKI Á FRAMHLIÐ */}
+      {/* LOKA TAKKI (ÓBREYTT) */}
       {showCloseButton && !isExpanded && (
           <button onClick={(e) => { e.stopPropagation(); onClose(); }} style={{
                 position: 'absolute', top: '20px', right: '20px', zIndex: 10,
@@ -181,6 +189,7 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
             }}>✕</button>
       )}
 
+      {/* CONTENT Á FRAMSÍÐU (ÓBREYTT) */}
       <div className="content" style={{
           zIndex: 3, position: 'absolute', bottom: 0, left: 0, width: '100%', padding: '24px', paddingBottom: '160px', 
           opacity: isExpanded ? 0 : 1, pointerEvents: isExpanded ? 'none' : 'auto', transition: 'opacity 0.3s ease'
@@ -211,17 +220,18 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
       <div style={{
         position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 4,
         display: 'flex', flexDirection: 'column', pointerEvents: 'auto', 
-        transition: 'opacity 0.3s ease 0.1s', paddingTop: '60px', animation: 'fadeIn 0.3s ease' 
+        // BREYTING: Padding Top 90px svo headerinn (hamborgari/search) sjáist
+        paddingTop: '90px', 
+        transition: 'opacity 0.3s ease 0.1s', 
+        animation: 'fadeIn 0.3s ease' 
       }}>
         
-        <div style={{padding: '0 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-           <h2 style={{fontSize: '1.2rem', fontWeight: 'bold', margin: 0, flex: 1}}>{article.title}</h2>
-           <button onClick={onClose} style={{background: 'none', border: 'none', color: '#fff', fontSize: '1.5rem', padding: '10px'}}>
-             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-           </button>
+        {/* Titill efst (undir header) */}
+        <div style={{padding: '0 20px', marginBottom:'10px'}}>
+           <h2 style={{fontSize: '1.2rem', fontWeight: 'bold', margin: 0, textShadow: '0 2px 10px rgba(0,0,0,0.5)'}}>{article.title}</h2>
         </div>
 
-        <div style={{display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.2)', margin: '20px'}}>
+        <div style={{display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.2)', margin: '0 20px 20px 20px'}}>
           <button onClick={() => setActiveTab('read')} style={tabStyle(activeTab === 'read')}>
               Fréttin
           </button>
@@ -232,41 +242,60 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
 
         <div className="modal-content" style={{flex: 1, overflowY: 'auto', padding: '0 20px 100px 20px'}}>
            
-           {/* FLIPI 1: FRÉTTIN & SAMANTEKT & LINKUR */}
+           {/* FLIPI 1: FRÉTTIN & SAMANTEKT & LINKAR */}
            {activeTab === 'read' && (
              <div style={{fontSize: '1.1rem', lineHeight: '1.8', color: '#eee', fontFamily: 'system-ui, sans-serif'}}>
                
+               {/* Samantektin */}
                <div style={{marginBottom: '30px'}}>
                     {loadingText && !summaryText ? (
                         <p style={{fontStyle:'italic', color:'#aaa'}}>🤖 Skrifa samantekt...</p>
                     ) : (
-                        (summaryText || article.excerpt).split('\n').map((p:string, i:number) => 
+                        (summaryText || '').split('\n').map((p:string, i:number) => 
                             p.trim() && <p key={i} style={{marginBottom:'15px'}}>{p.replace(/\[Lesa nánar.*\]/, '')}</p>
                         )
                     )}
                </div>
 
-               {/* TAKKINN (TRAFFIC GENERATOR) */}
-               <div style={{textAlign: 'center', marginBottom: '20px'}}>
-                    <button 
-                        onClick={() => handleOutboundClick(article.url)}
-                        style={{
-                            display: 'inline-flex', alignItems: 'center', gap: '10px',
-                            color: 'white', textDecoration: 'none', fontWeight: 'bold', 
-                            border: '1px solid rgba(255,255,255,0.3)', background: 'rgba(255,255,255,0.1)',
-                            padding: '16px 32px', borderRadius: '50px', backdropFilter: 'blur(5px)',
-                            cursor: 'pointer', fontSize: '1.1rem'
-                        }}
-                    >
-                        <span>Lesa alla fréttina á {sourceName}</span>
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
-                    </button>
-                    <p style={{fontSize: '0.8rem', color: '#888', marginTop: '10px'}}>Smelltu til að styðja við blaðamennsku {sourceName}</p>
+               {/* LISTI AF MIÐLUM (BREYTING: Loopar í gegnum sourceList) */}
+               <div style={{display: 'flex', flexDirection: 'column', gap: '15px', marginBottom: '20px'}}>
+                    {sourceList.map((item, index) => {
+                        const sName = item.sources?.name || sourceName;
+                        const time = new Date(item.published_at).toLocaleTimeString('is-IS', {hour:'2-digit', minute:'2-digit'});
+                        
+                        return (
+                            <button 
+                                key={item.id || index}
+                                onClick={() => handleOutboundClick(item.url, sName)}
+                                style={{
+                                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                    width: '100%', padding: '16px 25px',
+                                    // Notar sama stíl og þú varst með
+                                    background: 'rgba(255,255,255,0.1)', 
+                                    border: '1px solid rgba(255,255,255,0.3)',
+                                    borderRadius: '50px',
+                                    backdropFilter: 'blur(5px)',
+                                    color: 'white', cursor: 'pointer', textAlign: 'left',
+                                    transition: 'background 0.2s'
+                                }}
+                            >
+                                <div style={{display:'flex', alignItems:'center', gap:'10px'}}>
+                                    <span style={{fontWeight: 'bold', fontSize: '1.05rem'}}>Lesa frétt á {sName}</span>
+                                    {isMultiSourceTopic && <span style={{fontSize: '0.85rem', color: '#aaa', fontWeight:'normal'}}>({time})</span>}
+                                </div>
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                            </button>
+                        );
+                    })}
+                    
+                    <p style={{fontSize: '0.8rem', color: '#888', textAlign: 'center', marginTop: '5px'}}>
+                        Smelltu til að styðja við blaðamennsku
+                    </p>
                </div>
              </div>
            )}
            
-           {/* FLIPI 2: TENGT */}
+           {/* FLIPI 2: TENGT (ÓBREYTT) */}
            {activeTab === 'related' && (
              <div>
                  {loadingRelated ? 'Leita...' : relatedArticles.length === 0 ? 'Ekkert tengt efni fannst.' : relatedArticles.map(rel => (
@@ -284,7 +313,7 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
              </div>
            )}
            
-           {/* LOKA TAKKINN (ÖRIN) */}
+           {/* LOKA TAKKINN (ÓBREYTT) */}
            <div onClick={onClose} style={{marginTop: '50px', marginBottom: '80px', display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'pointer', opacity: 0.8}}>
              <span style={{fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '2px', fontWeight: 'bold', marginBottom: '5px'}}>Loka</span>
              <svg className="arrow-bounce" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6"/></svg>

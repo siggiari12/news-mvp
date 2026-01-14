@@ -42,16 +42,16 @@ body::before {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 20px;
+  padding: 0 10px;
   z-index: 1000;
   background: transparent;
 }
 
 .header-btn {
+  top: 15px;
   background: none;
   border: none;
   color: white;
-  padding: 8px;
   cursor: pointer;
   border-radius: 50%;
   transition: background 0.2s;
@@ -62,7 +62,7 @@ body::before {
 }
 
 .logo-container {
-  position: absolute;
+  position: fixed;
   left: 50%;
   transform: translateX(-50%);
   top: 15px; /* Staðsetning frá toppi */
@@ -136,7 +136,7 @@ body::before {
   display: flex;
   gap: 30px; /* Meira bil á milli orða */
   padding: 0 20px;
-  justify-content: center; /* Miðjar flokkana (ef þeir eru fáir), annars scrolla þeir */
+  justify-content: space-between; /* Miðjar flokkana (ef þeir eru fáir), annars scrolla þeir */
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -261,3 +261,106 @@ body::before {
   overflow: hidden;
   text-shadow: 0 1px 2px rgba(0,0,0,0.8);
 }
+
+/* --- LEIT OG OVERLAY --- */
+.search-overlay {
+  position: fixed;
+  inset: 0; /* Þekur allan skjáinn */
+  background: rgba(0, 0, 0, 0.85); /* Dökkur grunnur */
+  backdrop-filter: blur(20px);     /* Sterkt blur */
+  -webkit-backdrop-filter: blur(20px);
+  z-index: 6000; /* Verður að vera hærra en header (sem er 5000) */
+  display: flex;
+  flex-direction: column;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.search-top-bar {
+  height: var(--header-height, 80px); /* Sama hæð og header */
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 0 20px;
+  /* Hálfgegnsætt svart svo blörið njóti sín, en textinn sést */
+  background: rgba(0, 0, 0, 0.3); 
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.search-top-bar form {
+    flex: 1;
+    position: relative; /* Til að stýra icon staðsetningu */
+    display: flex;
+    align-items: center;
+}
+
+.search-input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.1); /* Hálfgegnsætt hvítt (glass) */
+  backdrop-filter: blur(10px);        
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 50px;                /* Rúnaðir endar */
+  padding: 14px 24px;       
+  padding-right: 50px; /* Pláss fyrir icon hægra megin */
+  color: white;
+  font-size: 1.1rem;
+  outline: none;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+}
+
+.search-input:focus {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.4);
+    box-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
+}
+
+.search-input::placeholder {
+    color: rgba(255, 255, 255, 0.5);
+}
+
+/* Stækkunargler inni í inputinu (ef þú ert með takkann þar) */
+.search-top-bar form button[type="submit"] {
+    position: absolute;
+    right: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.6);
+    cursor: pointer;
+}
+
+.popular-searches {
+  padding: 40px 20px;
+  opacity: 0;
+  animation: slideUp 0.3s ease-out 0.1s forwards;
+}
+
+.tag-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 15px;
+}
+
+.search-tag {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.1);
+  padding: 10px 20px;
+  border-radius: 30px;
+  color: #ddd;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.search-tag:hover {
+  background: rgba(255,255,255,0.2);
+  color: #fff;
+  transform: translateY(-2px);
+  border-color: rgba(255,255,255,0.3);
+}
+
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }

@@ -8,18 +8,19 @@ const SearchIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
 );
 const CloseIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
 );
 
-// VIÐBÓT: Ný props fyrir leitina
 interface NewsFeedProps {
   initialArticles: any[];
   activeCategory: any;
   showSearchProp: boolean;
   onCloseSearch: () => void;
+  // NÝTT: Fall til að láta parent vita hvort frétt sé opin (til að fela header)
+  onArticleStateChange?: (isOpen: boolean) => void;
 }
 
-export default function NewsFeed({ initialArticles, activeCategory, showSearchProp, onCloseSearch }: NewsFeedProps) {
+export default function NewsFeed({ initialArticles, activeCategory, showSearchProp, onCloseSearch, onArticleStateChange }: NewsFeedProps) {
   const [articles, setArticles] = useState<any[]>(initialArticles || []);
   const [loading, setLoading] = useState(initialArticles ? false : true);
   
@@ -30,19 +31,25 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
   const [isSearching, setIsSearching] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // VIÐBÓT: Samstillum leitina við Header takkann
   useEffect(() => {
     setShowSearch(showSearchProp);
     if (showSearchProp) {
-        // Hreinsum ekki niðurstöður strax svo fólk missi þær ekki, en gætum focusað
         setTimeout(() => searchInputRef.current?.focus(), 100);
     }
   }, [showSearchProp]);
 
-  // --- HYBRID NAVIGATION STATE ---
+  // --- NAVIGATION STATE ---
   const [readingId, setReadingId] = useState<string | null>(null);
   const [readingArticle, setReadingArticle] = useState<any | null>(null);
   const [isReaderExpanded, setIsReaderExpanded] = useState(false); 
+
+  // --- NÝTT: Láta parent vita ef eitthvað er opið ---
+  useEffect(() => {
+    if (onArticleStateChange) {
+        const isAnyArticleOpen = !!readingId || !!readingArticle;
+        onArticleStateChange(isAnyArticleOpen);
+    }
+  }, [readingId, readingArticle, onArticleStateChange]);
 
   const isBusyRef = useRef(false);
   useEffect(() => { 
@@ -52,10 +59,11 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
   const openGlobalArticle = (article: any) => {
       setReadingArticle(article);
       setIsReaderExpanded(false); 
+      // Ef smellt er úr leit, lokum leitinni líka
+      if (showSearch) onCloseSearch();
   };
 
   const handleRelatedClick = async (relatedArticle: any) => {
-      console.log("Sæki fulla frétt fyrir:", relatedArticle.id);
       const { data } = await supabaseBrowser
           .from('articles')
           .select('*, sources(name)')
@@ -76,7 +84,6 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
   const fetchNews = async () => {
     if (isBusyRef.current) return;
     const deviceId = localStorage.getItem('vizka_device_id') || 'unknown';
-    console.log("Sæki nýjar fréttir...");
     
     const { data } = await supabaseBrowser
       .rpc('get_ranked_feed', { 
@@ -86,8 +93,7 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
       });
     
     if (data) {
-      const formattedArticles = formatData(data);
-      setArticles(formattedArticles);
+      setArticles(formatData(data));
       setLoading(false);
     }
   };
@@ -114,8 +120,7 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
   };
 
   const formatData = (data: any[]) => {
-      return data.map((article: any) => {
-        return {
+      return data.map((article: any) => ({
           id: article.id,
           topic_id: article.topic_id,
           title: article.title,
@@ -128,8 +133,7 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
           sources: { name: article.source_name }, 
           full_text: article.full_text,
           url: article.url
-        };
-      });
+      }));
   };
 
   useEffect(() => {
@@ -137,20 +141,9 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
     window.scrollTo(0, 0);
     fetchNews(); 
     
-    const handleVisibilityChange = () => {
-        if (document.visibilityState === 'visible') {
-            fetchNews();
-        }
-    };
+    const handleVisibilityChange = () => { if (document.visibilityState === 'visible') fetchNews(); };
     document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    const channel = supabaseBrowser
-      .channel('realtime-topics')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'topics' }, () => {
-        fetchNews();
-      })
-      .subscribe();
-
+    const channel = supabaseBrowser.channel('realtime-topics').on('postgres_changes', { event: '*', schema: 'public', table: 'topics' }, () => fetchNews()).subscribe();
     const interval = setInterval(() => { fetchNews(); }, 60000);
 
     return () => { 
@@ -160,23 +153,14 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
     };
   }, []);
 
-  // --- SÍAN (FILTER) ---
   const filteredArticles = articles.filter(article => {
     const cat = (article.category || '').toLowerCase().trim();
     const imp = article.importance || 0;
-
     if (activeCategory === 'allt') return true; 
-    
     if (activeCategory === 'folk') return cat === 'folk';
     if (activeCategory === 'sport') return cat === 'sport';
-    
-    if (activeCategory === 'innlent') {
-        return cat === 'innlent' || (imp >= 8 && cat !== 'sport' && cat !== 'erlent');
-    }
-    if (activeCategory === 'erlent') {
-        return cat === 'erlent' || (imp >= 8 && cat !== 'sport' && cat !== 'innlent');
-    }
-    
+    if (activeCategory === 'innlent') return cat === 'innlent' || (imp >= 8 && cat !== 'sport' && cat !== 'erlent');
+    if (activeCategory === 'erlent') return cat === 'erlent' || (imp >= 8 && cat !== 'sport' && cat !== 'innlent');
     return cat === activeCategory;
   });
 
@@ -185,93 +169,73 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
   return (
     <main className="feed-container">
       
-      {/* --- LEITARSVÆÐI --- */}
-      {/* Þetta birtist bara þegar showSearch er true */}
-      {showSearch ? (
-          <div style={{
-              paddingTop: '80px', // Pláss fyrir Header
-              paddingLeft: '20px', 
-              paddingRight: '20px',
-              minHeight: '100vh', 
-              background: '#111',
-              position: 'fixed', // Látum þetta fljóta yfir
-              top: 0, left: 0, right: 0, bottom: 0,
-              zIndex: 40, // Undir header en yfir feed
-              overflowY: 'auto'
-          }}>
-              {/* Leitarformið */}
-              <div className="flex items-center gap-3 mb-6">
+      {/* --- LEITAR OVERLAY (NÝTT ÚTLIT) --- */}
+      {showSearch && (
+          <div className="search-overlay">
+              
+              {/* Top Bar (í stað Header) */}
+              <div className="search-top-bar">
+                <SearchIcon />
                 <form onSubmit={handleSearch} style={{flex: 1, position: 'relative'}}>
                     <input 
                         ref={searchInputRef}
+                        className="search-input"
                         type="text" 
                         placeholder="Leita að fréttum..." 
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        style={{
-                            width: '100%', 
-                            padding: '12px 20px', 
-                            borderRadius: '30px', 
-                            border: '1px solid #333', 
-                            background: '#222', 
-                            color: 'white', 
-                            fontSize: '1rem',
-                            outline: 'none'
-                        }}
                     />
-                    <button 
-                        type="submit"
-                        style={{
-                            position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)',
-                            background: 'none', border: 'none', color: '#888'
-                        }}
-                    >
-                        <SearchIcon />
-                    </button>
                 </form>
-                {/* Loka takki */}
-                <button 
-                    onClick={onCloseSearch}
-                    style={{background: 'none', border: 'none', color: '#fff', padding: '5px'}}
-                >
+                <button onClick={onCloseSearch} style={{background: 'none', border: 'none', color: '#fff', cursor: 'pointer'}}>
                     <CloseIcon />
                 </button>
               </div>
 
-              {/* Niðurstöður */}
-              {isSearching && <p style={{textAlign:'center', color:'#888', marginTop:'20px'}}>Leita...</p>}
-              {!isSearching && searchResults.length === 0 && searchQuery && <p style={{textAlign:'center', color:'#888', marginTop:'20px'}}>Ekkert fannst.</p>}
-              
-              <div className="flex flex-col gap-2">
-                {searchResults.map(result => (
-                    <div key={result.id} onClick={() => openGlobalArticle(result)} style={{
-                        padding: '15px', 
-                        background: '#1a1a1a',
-                        borderRadius: '8px',
-                        cursor: 'pointer',
-                        display: 'flex', flexDirection: 'column', gap: '5px'
-                    }}>
-                        <h3 style={{margin: 0, fontSize: '1rem', color: 'white'}}>{result.title}</h3>
-                        <div style={{fontSize: '0.8rem', color: '#888'}}>
-                            {result.sources?.name} • {new Date(result.published_at).toLocaleDateString('is-IS')}
+              {/* Efni í leit */}
+              <div style={{overflowY: 'auto', flex: 1}}>
+                
+                {/* Vinsælt (Birtist bara ef engin leit er í gangi) */}
+                {!searchQuery && searchResults.length === 0 && (
+                    <div className="popular-section">
+                        <h3 style={{color:'#888', fontSize:'0.8rem', textTransform:'uppercase', letterSpacing:'1px', marginBottom:'10px'}}>Vinsælt núna</h3>
+                        <div className="tag-cloud">
+                            <span className="search-tag" onClick={() => setSearchQuery("Kosningar")}>Kosningar</span>
+                            <span className="search-tag" onClick={() => setSearchQuery("Eldgos")}>Eldgos</span>
+                            <span className="search-tag" onClick={() => setSearchQuery("Veðrið")}>Veðrið</span>
+                            <span className="search-tag" onClick={() => setSearchQuery("Enski boltinn")}>Enski boltinn</span>
                         </div>
                     </div>
-                ))}
+                )}
+
+                {/* Niðurstöður */}
+                <div style={{padding: '20px'}}>
+                    {isSearching && <p style={{color:'#888'}}>Leita...</p>}
+                    {searchResults.map(result => (
+                        <div key={result.id} onClick={() => openGlobalArticle(result)} style={{
+                            padding: '15px 0', borderBottom: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer'
+                        }}>
+                            <h3 style={{margin: '0 0 5px 0', fontSize: '1.1rem', color: 'white'}}>{result.title}</h3>
+                            <div style={{fontSize: '0.8rem', color: '#888'}}>
+                                {result.sources?.name} • {new Date(result.published_at).toLocaleDateString('is-IS')}
+                            </div>
+                        </div>
+                    ))}
+                </div>
               </div>
           </div>
-      ) : (
-          /* --- VENJULEGT FEED --- */
-          filteredArticles.map((article) => (
-            <NewsCard 
-                key={article.id} 
-                article={article}
-                isExpanded={readingId === article.id} 
-                onOpen={() => setReadingId(article.id)} 
-                onClose={() => setReadingId(null)} 
-                onRelatedClick={handleRelatedClick} 
-            />
-          ))
       )}
+
+      {/* --- VENJULEGT FEED --- */}
+      {filteredArticles.map((article) => (
+        <NewsCard 
+            key={article.id} 
+            article={article}
+            isExpanded={readingId === article.id} 
+            onOpen={() => setReadingId(article.id)} 
+            onClose={() => setReadingId(null)} 
+            onRelatedClick={handleRelatedClick} 
+        />
+      ))}
 
       {/* --- GLOBAL READER --- */}
       {readingArticle && (
