@@ -1,12 +1,12 @@
 import { supabaseServer } from "@/lib/supabase";
-import NewsFeed from "@/components/NewsFeed";
+import FeedWrapper from "@/components/FeedWrapper"; // BREYTING: Notum Wrapperinn
 
 export const dynamic = 'force-dynamic';
 
 export default async function Home() {
   const supabase = supabaseServer();
 
-  // Köllum á RPC fallið (Núna skilar það UUID sem er ekkert mál fyrir React)
+  // Köllum á RPC fallið (Heilann)
   const { data: rankedArticles, error } = await supabase
     .rpc('get_ranked_feed', {
       device_id_input: 'server',
@@ -18,7 +18,7 @@ export default async function Home() {
     console.error("Villa við að sækja ranked feed:", error);
   }
 
-  // Pökkum gögnunum fyrir NewsFeed
+  // Pökkum gögnunum
   const formattedArticles = (rankedArticles || []).map((article: any) => {
     return {
       ...article,
@@ -27,7 +27,9 @@ export default async function Home() {
     };
   });
 
+  // BREYTING: Skilum FeedWrapper í staðinn fyrir NewsFeed
+  // FeedWrapper sér um að rendera Header, Filter og NewsFeed með réttum props.
   return (
-    <NewsFeed initialArticles={formattedArticles} />
+    <FeedWrapper initialArticles={formattedArticles} />
   );
 }

@@ -11,18 +11,33 @@ const CloseIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
 );
 
-export default function NewsFeed({ initialArticles }: { initialArticles: any[] }) {
+// VIÐBÓT: Ný props fyrir leitina
+interface NewsFeedProps {
+  initialArticles: any[];
+  activeCategory: any;
+  showSearchProp: boolean;
+  onCloseSearch: () => void;
+}
+
+export default function NewsFeed({ initialArticles, activeCategory, showSearchProp, onCloseSearch }: NewsFeedProps) {
   const [articles, setArticles] = useState<any[]>(initialArticles || []);
   const [loading, setLoading] = useState(initialArticles ? false : true);
   
-  // Uppfærðir flokkar: 'fyrir_thig' í stað 'all', og 'folk' bætt við
-  const [activeCategory, setActiveCategory] = useState<'fyrir_thig' | 'innlent' | 'erlent' | 'folk' | 'sport'>('fyrir_thig');
-
   // --- LEIT ---
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // VIÐBÓT: Samstillum leitina við Header takkann
+  useEffect(() => {
+    setShowSearch(showSearchProp);
+    if (showSearchProp) {
+        // Hreinsum ekki niðurstöður strax svo fólk missi þær ekki, en gætum focusað
+        setTimeout(() => searchInputRef.current?.focus(), 100);
+    }
+  }, [showSearchProp]);
 
   // --- HYBRID NAVIGATION STATE ---
   const [readingId, setReadingId] = useState<string | null>(null);
@@ -60,18 +75,13 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
 
   const fetchNews = async () => {
     if (isBusyRef.current) return;
-
-    // Sækjum deviceId fyrir persónulega röðun (seinna)
     const deviceId = localStorage.getItem('vizka_device_id') || 'unknown';
-
     console.log("Sæki nýjar fréttir...");
     
-    // Köllum á RPC fallið (Heilann) í staðinn fyrir töfluna beint
-    // Þetta tryggir að við fáum raðaðan lista (vinsældir + tími)
     const { data } = await supabaseBrowser
       .rpc('get_ranked_feed', { 
         device_id_input: deviceId,
-        limit_count: 50, // Sækjum nóg til að fylla flokkana
+        limit_count: 60, 
         offset_count: 0 
       });
     
@@ -114,8 +124,8 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
           published_at: article.published_at,
           article_count: article.article_count,
           category: article.category,
-          importance: article.importance || 0, // Passa að þetta sé með
-          sources: { name: article.source_name }, // NewsCard býst við object
+          importance: article.importance || 0, 
+          sources: { name: article.source_name }, 
           full_text: article.full_text,
           url: article.url
         };
@@ -125,11 +135,10 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
   useEffect(() => {
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
     window.scrollTo(0, 0);
-    fetchNews(); // Sækjum strax til að fá nýjustu röðun
+    fetchNews(); 
     
     const handleVisibilityChange = () => {
         if (document.visibilityState === 'visible') {
-            window.scrollTo(0, 0);
             fetchNews();
         }
     };
@@ -156,10 +165,7 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
     const cat = (article.category || '').toLowerCase().trim();
     const imp = article.importance || 0;
 
-    // MIKILVÆGT: Ef frétt er mjög mikilvæg (8+), sýnum hana alltaf í 'fyrir_thig' og 'innlent/erlent'
-    // en pössum að blanda ekki sporti og pólitík nema nauðsyn krefji.
-    
-    if (activeCategory === 'fyrir_thig') return true; // Sýna allt í 'Fyrir þig' (raðað af SQL)
+    if (activeCategory === 'allt') return true; 
     
     if (activeCategory === 'folk') return cat === 'folk';
     if (activeCategory === 'sport') return cat === 'sport';
@@ -178,78 +184,83 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
 
   return (
     <main className="feed-container">
-      {/* --- TOP BAR --- */}
-      <div style={{
-        position: 'fixed', top: 0, left: 0, width: '100%', zIndex: 100, 
-        padding: '15px 0', paddingTop: 'calc(15px + env(safe-area-inset-top))',
-        background: 'linear-gradient(to bottom, rgba(0,0,0,0.9) 0%, transparent 100%)',
-        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px',
-        pointerEvents: 'none'
-      }}>
-        {!showSearch && (
-            <div style={{
-                display: 'flex', 
-                alignItems: 'center',
-                justifyContent: 'space-between', 
-                width: '100%', 
-                pointerEvents: 'auto',
-                overflowX: 'auto', 
-                whiteSpace: 'nowrap', 
-                padding: '0 25px', 
-                scrollbarWidth: 'none', msOverflowStyle: 'none', WebkitOverflowScrolling: 'touch'
-            }}>
-                <style>{`::-webkit-scrollbar { display: none; }`}</style>
-                
-                {/* UPPFÆRÐIR FLIPAR */}
-                <button onClick={() => setActiveCategory('fyrir_thig')} style={catStyle(activeCategory === 'fyrir_thig')}>FYRIR ÞIG</button>
-                <button onClick={() => setActiveCategory('innlent')} style={catStyle(activeCategory === 'innlent')}>INNLENT</button>
-                <button onClick={() => setActiveCategory('erlent')} style={catStyle(activeCategory === 'erlent')}>ERLENT</button>
-                <button onClick={() => setActiveCategory('folk')} style={catStyle(activeCategory === 'folk')}>FÓLK</button>
-                <button onClick={() => setActiveCategory('sport')} style={catStyle(activeCategory === 'sport')}>SPORT</button>
-                
-                <button 
-                    onClick={() => { setShowSearch(true); setSearchResults([]); }} 
-                    style={{ ...catStyle(false), marginLeft: '0' }} 
-                >
-                    <SearchIcon/>
-                </button>
-            </div>
-        )}
-        {showSearch && (
-            <form onSubmit={handleSearch} style={{display: 'flex', gap: '10px', width: '90%', maxWidth: '400px', pointerEvents: 'auto'}}>
-                <div style={{position: 'relative', flex: 1}}>
+      
+      {/* --- LEITARSVÆÐI --- */}
+      {/* Þetta birtist bara þegar showSearch er true */}
+      {showSearch ? (
+          <div style={{
+              paddingTop: '80px', // Pláss fyrir Header
+              paddingLeft: '20px', 
+              paddingRight: '20px',
+              minHeight: '100vh', 
+              background: '#111',
+              position: 'fixed', // Látum þetta fljóta yfir
+              top: 0, left: 0, right: 0, bottom: 0,
+              zIndex: 40, // Undir header en yfir feed
+              overflowY: 'auto'
+          }}>
+              {/* Leitarformið */}
+              <div className="flex items-center gap-3 mb-6">
+                <form onSubmit={handleSearch} style={{flex: 1, position: 'relative'}}>
                     <input 
-                        autoFocus type="text" placeholder="Leita..." value={searchQuery}
+                        ref={searchInputRef}
+                        type="text" 
+                        placeholder="Leita að fréttum..." 
+                        value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         style={{
-                            width: '100%', padding: '12px 20px', borderRadius: '30px', border: 'none', 
-                            background: 'rgba(50,50,50,0.9)', color: 'white', fontSize: '1rem'
+                            width: '100%', 
+                            padding: '12px 20px', 
+                            borderRadius: '30px', 
+                            border: '1px solid #333', 
+                            background: '#222', 
+                            color: 'white', 
+                            fontSize: '1rem',
+                            outline: 'none'
                         }}
                     />
-                </div>
-                <button type="button" onClick={() => { setShowSearch(false); setSearchQuery(""); }} style={{background:'none', border:'none', color:'white'}}><CloseIcon/></button>
-            </form>
-        )}
-      </div>
+                    <button 
+                        type="submit"
+                        style={{
+                            position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)',
+                            background: 'none', border: 'none', color: '#888'
+                        }}
+                    >
+                        <SearchIcon />
+                    </button>
+                </form>
+                {/* Loka takki */}
+                <button 
+                    onClick={onCloseSearch}
+                    style={{background: 'none', border: 'none', color: '#fff', padding: '5px'}}
+                >
+                    <CloseIcon />
+                </button>
+              </div>
 
-      {/* --- LISTI --- */}
-      {showSearch ? (
-          <div style={{padding: '100px 20px 20px 20px', minHeight: '100vh', background: '#111'}}>
+              {/* Niðurstöður */}
               {isSearching && <p style={{textAlign:'center', color:'#888', marginTop:'20px'}}>Leita...</p>}
               {!isSearching && searchResults.length === 0 && searchQuery && <p style={{textAlign:'center', color:'#888', marginTop:'20px'}}>Ekkert fannst.</p>}
-              {searchResults.map(result => (
-                  <div key={result.id} onClick={() => openGlobalArticle(result)} style={{
-                      padding: '15px', borderBottom: '1px solid #333', cursor: 'pointer',
-                      display: 'flex', flexDirection: 'column', gap: '5px'
-                  }}>
-                      <h3 style={{margin: 0, fontSize: '1rem', color: 'white'}}>{result.title}</h3>
-                      <div style={{fontSize: '0.8rem', color: '#888'}}>
-                          {result.sources?.name} • {new Date(result.published_at).toLocaleDateString('is-IS')}
-                      </div>
-                  </div>
-              ))}
+              
+              <div className="flex flex-col gap-2">
+                {searchResults.map(result => (
+                    <div key={result.id} onClick={() => openGlobalArticle(result)} style={{
+                        padding: '15px', 
+                        background: '#1a1a1a',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        display: 'flex', flexDirection: 'column', gap: '5px'
+                    }}>
+                        <h3 style={{margin: 0, fontSize: '1rem', color: 'white'}}>{result.title}</h3>
+                        <div style={{fontSize: '0.8rem', color: '#888'}}>
+                            {result.sources?.name} • {new Date(result.published_at).toLocaleDateString('is-IS')}
+                        </div>
+                    </div>
+                ))}
+              </div>
           </div>
       ) : (
+          /* --- VENJULEGT FEED --- */
           filteredArticles.map((article) => (
             <NewsCard 
                 key={article.id} 
@@ -281,22 +292,4 @@ export default function NewsFeed({ initialArticles }: { initialArticles: any[] }
       )}
     </main>
   );
-}
-
-function catStyle(isActive: boolean) {
-  return {
-    pointerEvents: 'auto' as const,
-    background: 'none', border: 'none', 
-    color: isActive ? '#ffffff' : 'rgba(255,255,255,0.6)', 
-    fontWeight: isActive ? '700' : '500', 
-    fontSize: '0.85rem', 
-    textTransform: 'uppercase' as const, 
-    textShadow: '0 1px 3px rgba(0,0,0,0.8)',
-    cursor: 'pointer',
-    position: 'relative' as const,
-    transition: 'all 0.2s',
-    borderBottom: isActive ? '2px solid white' : '2px solid transparent',
-    paddingBottom: '4px',
-    flexShrink: 0
-  };
 }
