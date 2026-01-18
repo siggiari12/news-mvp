@@ -10,18 +10,18 @@ interface Props {
 }
 
 export default function FeedWrapper({ initialArticles }: Props) {
-  const [activeCategory, setActiveCategory] = useState<any>('allt');
+  const [activeCategory, setActiveCategory] = useState<string>('allt');
   const [showSearch, setShowSearch] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   
-  // Vitum hvort frétt sé opin
+  // State til að fela UI þegar frétt er opin (Full screen mode)
   const [isArticleOpen, setIsArticleOpen] = useState(false);
 
   return (
-    <main className="h-screen w-full bg-black text-white overflow-hidden relative">
+    <main className="h-screen w-full bg-black text-white overflow-hidden relative touch-none">
       
-      {/* HEADER: Alltaf sýnilegur, z-index verður að vera hærra en NewsCard */}
-      <div style={{position: 'relative', zIndex: 5000}}>
+      {/* HEADER: Z-index 50 (yfir feed) */}
+      <div className="absolute top-0 left-0 right-0 z-50">
         <Header 
             isMenuOpen={showMenu}
             onMenuClick={() => setShowMenu(!showMenu)} 
@@ -29,16 +29,16 @@ export default function FeedWrapper({ initialArticles }: Props) {
         />
       </div>
 
-      {/* FLOKKAR: Hverfa þegar frétt/leit er opin */}
-      {!isArticleOpen && !showSearch && (
+      {/* FLOKKAR: Z-index 40. Hverfa þegar frétt/leit er opin */}
+      <div className={`absolute top-16 left-0 right-0 z-40 transition-opacity duration-300 ${isArticleOpen || showSearch ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
         <CategoryFilter 
           activeCategory={activeCategory} 
           onSelectCategory={setActiveCategory} 
         />
-      )}
+      </div>
 
-      {/* Fréttastraumurinn */}
-      <div className="absolute inset-0 z-0">
+      {/* Fréttastraumurinn: Z-index 10. Fyllir allan skjáinn */}
+      <div className="absolute inset-0 z-10">
         <NewsFeed 
             initialArticles={initialArticles} 
             activeCategory={activeCategory}

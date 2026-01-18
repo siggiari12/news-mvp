@@ -24,14 +24,26 @@ function cleanTitle(text: string) {
   return text.toLowerCase().replace(/\|.*$/, '').replace(/-.*$/, '').replace(/[^\w\sáðéíóúýþæö]/g, '').replace(/\s{2,}/g, " ").trim();
 }
 
-// --- UPPFÆRT: Mynda-hreinsun sem skemmir ekki Vísi (Þín útgáfa) ---
+// --- UPPFÆRT: Mynda-hreinsun sem síar líka út rusl-myndir ---
 function cleanImageUrl(url: string | null): string | null {
   if (!url) return null;
+  const lower = url.toLowerCase();
+
+  // 1. BLACKLIST: Ef þetta eru þekktar "fallback" myndir, hendum þeim strax.
+  // Þetta leysir MBL lógó vandamálið!
+  if (lower.includes('mbl-logo') || 
+      lower.includes('frontend/gfx/logo') || // MBL default lógó slóð
+      lower.includes('default-image') ||
+      lower.includes('placeholder')) {
+      return null; 
+  }
   
-  // MBL: Reynum að fá stærri mynd
-  if (url.includes('mbl.is')) return url.replace('/frimg/th/', '/frimg/').replace('/crop/', '/');
+  // MBL: Reynum að fá stærri mynd (en bara ef hún slapp í gegnum blacklistið)
+  if (url.includes('mbl.is')) {
+      return url.replace('/frimg/th/', '/frimg/').replace('/crop/', '/');
+  }
   
-  // VÍSIR: Hér var villan áður. Við viljum halda 'w=' en breyta í 1200.
+  // VÍSIR: Við viljum halda 'w=' en breyta í 1200.
   if (url.includes('visir.is')) {
       if (url.includes('w=')) return url.replace(/w=\d+/, 'w=1200');
       return url;
@@ -39,8 +51,10 @@ function cleanImageUrl(url: string | null): string | null {
 
   if (url.includes('bbci.co.uk')) return url.replace(/\/news\/\d+\//, '/news/976/'); 
   if (url.includes('theguardian.com') && url.includes('width=')) return url.replace(/width=\d+/, 'width=1000').replace(/quality=\d+/, 'quality=85');
+  
   return url;
 }
+
 
 // --- HARÐARI HREINSUN Á TEXTA ---
 function aggressiveClean(text: string): string {

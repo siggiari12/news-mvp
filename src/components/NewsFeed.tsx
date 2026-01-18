@@ -1,7 +1,24 @@
 "use client";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import NewsCard from "./NewsCard";
 import { supabaseBrowser } from "@/lib/supabase";
+
+// --- SAMRÆMD TÝPA (Verður að vera eins og í NewsCard) ---
+interface Article {
+  id: string;
+  topic_id?: string;
+  title: string;
+  excerpt?: string;
+  summary?: string;
+  image_url?: string;
+  published_at: string;
+  article_count?: number;
+  category?: string;
+  importance?: number;
+  sources?: { name: string };
+  full_text?: string;
+  url?: string; // Valkvætt (?) til að koma í veg fyrir Type Error
+}
 
 // --- SVG IKON ---
 const SearchIcon = () => (
@@ -12,27 +29,30 @@ const CloseIcon = () => (
 );
 
 interface NewsFeedProps {
-  initialArticles: any[];
-  activeCategory: any;
+  initialArticles: Article[];
+  activeCategory: string; // Breytt í string
   showSearchProp: boolean;
   onCloseSearch: () => void;
   onArticleStateChange?: (isOpen: boolean) => void;
 }
 
 export default function NewsFeed({ initialArticles, activeCategory, showSearchProp, onCloseSearch, onArticleStateChange }: NewsFeedProps) {
-  const [articles, setArticles] = useState<any[]>(initialArticles || []);
+  const [articles, setArticles] = useState<Article[]>(initialArticles || []);
   const [loading, setLoading] = useState(initialArticles ? false : true);
   
+  // Ref til að stjórna scrollinu
+  const feedContainerRef = useRef<HTMLDivElement>(null);
+
   // --- PAGINATION & VIRTUALIZATION STATES ---
-  const [offset, setOffset] = useState(0);      // Hversu margar fréttir erum við búin að sækja
-  const [hasMore, setHasMore] = useState(true); // Eru til fleiri fréttir?
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
   const [isFetchingMore, setIsFetchingMore] = useState(false);
-  const [activeIndex, setActiveIndex] = useState(0); // Hvaða frétt er á skjánum núna?
+  const [activeIndex, setActiveIndex] = useState(0);
   
   // --- LEIT ---
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchResults, setSearchResults] = useState<Article[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -45,7 +65,7 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
 
   // --- NAVIGATION STATE ---
   const [readingId, setReadingId] = useState<string | null>(null);
-  const [readingArticle, setReadingArticle] = useState<any | null>(null);
+  const [readingArticle, setReadingArticle] = useState<Article | null>(null);
   const [isReaderExpanded, setIsReaderExpanded] = useState(false); 
 
   useEffect(() => {
@@ -60,34 +80,55 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
       isBusyRef.current = !!readingId || !!readingArticle; 
   }, [readingId, readingArticle]);
 
-  const openGlobalArticle = (article: any) => {
-      setReadingArticle(article);
-      setIsReaderExpanded(false); 
-      if (showSearch) onCloseSearch();
-  };
-
-  const handleRelatedClick = async (relatedArticle: any) => {
-      const { data } = await supabaseBrowser
-          .from('articles')
-          .select('*, sources(name)')
-          .eq('id', relatedArticle.id)
-          .single();
+  // --- FILTERING (useMemo) ---
+  const filteredArticles = useMemo(() => {
+    return articles.filter(article => {
+      const cat = (article.category || '').toLowerCase().trim();
+      const imp = article.importance || 0;
       
-      if (data) {
-          const formattedRelated = {
-              ...data,
-              topic_id: data.id,
-              article_count: 1,
-              sources: data.sources
-          };
-          openGlobalArticle(formattedRelated);
-      }
+      if (activeCategory === 'allt') return true; 
+      if (activeCategory === 'folk') return cat === 'folk';
+      if (activeCategory === 'sport') return cat === 'sport';
+      if (activeCategory === 'innlent') return cat === 'innlent' || (imp >= 8 && cat !== 'sport' && cat !== 'erlent');
+      if (activeCategory === 'erlent') return cat === 'erlent' || (imp >= 8 && cat !== 'sport' && cat !== 'innlent');
+      
+      return cat === activeCategory;
+    });
+  }, [articles, activeCategory]);
+
+  // --- SCROLL TO TOP LÖGUN ---
+  // Þetta keyrir þegar activeCategory breytist
+  useEffect(() => {
+    if (feedContainerRef.current) {
+      // 1. Reset active index
+      setActiveIndex(0);
+      // 2. Þvinga scroll efst strax
+      feedContainerRef.current.scrollTop = 0;
+    }
+  }, [activeCategory]); 
+
+
+  // --- DATA FETCHING ---
+  const formatData = (data: any[]): Article[] => {
+    return data.map((article: any) => ({
+        id: article.id,
+        topic_id: article.topic_id,
+        title: article.title,
+        excerpt: article.excerpt,
+        image_url: article.image_url,
+        published_at: article.published_at,
+        article_count: article.article_count,
+        category: article.category,
+        importance: article.importance || 0, 
+        sources: { name: article.source_name }, 
+        full_text: article.full_text,
+        url: article.url
+    }));
   };
 
-    // --- UPPHAFLEG SÓKN (RESET) ---
   const fetchInitialNews = async () => {
     if (isBusyRef.current) return;
-    setLoading(true);
+    if (articles.length === 0) setLoading(true);
     const deviceId = localStorage.getItem('vizka_device_id') || 'unknown';
     
     try {
@@ -110,7 +151,6 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
     }
   };
 
-  // --- SÆKJA MEIRA (INFINITE SCROLL) ---
   const fetchMoreNews = async () => {
     if (isFetchingMore || !hasMore) return;
     setIsFetchingMore(true);
@@ -130,12 +170,8 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
         if (data && data.length > 0) {
             setArticles(prev => {
                 const newArticles = formatData(data);
-                // Búum til lista af ID-um sem við eigum nú þegar
                 const existingIds = new Set(prev.map(a => a.id));
-                
-                // Síum út nýju fréttirnar: Tökum bara þær sem eru EKKI til nú þegar
                 const uniqueNewArticles = newArticles.filter(a => !existingIds.has(a.id));
-
                 return [...prev, ...uniqueNewArticles];
             });
             setOffset(prev => prev + limit);
@@ -145,11 +181,9 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
     } catch (e) {
         console.error("Villa við að sækja fleiri fréttir:", e);
     } finally {
-        // MIKILVÆGT: Þetta verður að keyra til að opna fyrir næsta scroll
         setIsFetchingMore(false);
     }
   };
-
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -172,33 +206,43 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
     } catch (error) { console.error(error); } finally { setIsSearching(false); }
   };
 
-  const formatData = (data: any[]) => {
-      return data.map((article: any) => ({
-          id: article.id,
-          topic_id: article.topic_id,
-          title: article.title,
-          excerpt: article.excerpt,
-          image_url: article.image_url,
-          published_at: article.published_at,
-          article_count: article.article_count,
-          category: article.category,
-          importance: article.importance || 0, 
-          sources: { name: article.source_name }, 
-          full_text: article.full_text,
-          url: article.url
-      }));
+  const openGlobalArticle = (article: Article) => {
+      setReadingArticle(article);
+      setIsReaderExpanded(false); 
+      if (showSearch) onCloseSearch();
+  };
+
+  const handleRelatedClick = async (relatedArticle: any) => {
+      const { data } = await supabaseBrowser
+          .from('articles')
+          .select('*, sources(name)')
+          .eq('id', relatedArticle.id)
+          .single();
+      
+      if (data) {
+          const formattedRelated: Article = {
+              id: data.id,
+              topic_id: data.id,
+              title: data.title,
+              published_at: data.published_at,
+              excerpt: data.excerpt,
+              image_url: data.image_url,
+              url: data.url,
+              article_count: 1,
+              sources: data.sources,
+              full_text: data.full_text
+          };
+          openGlobalArticle(formattedRelated);
+      }
   };
 
   useEffect(() => {
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
-    window.scrollTo(0, 0);
-    // Ef við fengum ekki initialArticles, sækjum þær
     if (articles.length === 0) fetchInitialNews();
     
-    // Refresh logic (óbreytt)
     const handleVisibilityChange = () => { if (document.visibilityState === 'visible') fetchInitialNews(); };
     document.addEventListener("visibilitychange", handleVisibilityChange);
-    const interval = setInterval(() => { fetchInitialNews(); }, 300000); // Hækkaði í 5 mín refresh til að trufla ekki scroll
+    const interval = setInterval(() => { fetchInitialNews(); }, 300000); 
 
     return () => { 
       clearInterval(interval);
@@ -206,44 +250,40 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
     };
   }, []);
 
-  // --- FILTERING ---
-  const filteredArticles = articles.filter(article => {
-    const cat = (article.category || '').toLowerCase().trim();
-    const imp = article.importance || 0;
-    if (activeCategory === 'allt') return true; 
-    if (activeCategory === 'folk') return cat === 'folk';
-    if (activeCategory === 'sport') return cat === 'sport';
-    if (activeCategory === 'innlent') return cat === 'innlent' || (imp >= 8 && cat !== 'sport' && cat !== 'erlent');
-    if (activeCategory === 'erlent') return cat === 'erlent' || (imp >= 8 && cat !== 'sport' && cat !== 'innlent');
-    return cat === activeCategory;
-  });
-
-  // --- SCROLL HANDLER (Virtualization & Infinite Scroll) ---
+  // --- SCROLL HANDLER (Með requestAnimationFrame fyrir performance) ---
   const handleScroll = (e: React.UIEvent<HTMLElement>) => {
       const target = e.currentTarget;
-      const height = target.clientHeight;
-      const scrollTop = target.scrollTop;
       
-      // 1. Reikna hvaða index er á skjánum
-      const index = Math.round(scrollTop / height);
-      setActiveIndex(index);
+      requestAnimationFrame(() => {
+          const height = target.clientHeight;
+          const scrollTop = target.scrollTop;
+          
+          const index = Math.round(scrollTop / height);
+          setActiveIndex(index);
 
-      // 2. Infinite Scroll: Ef við erum nálægt botninum (innan við 5 fréttir), sækja meira
-      // Við miðum við filteredArticles lengdina
-      if (hasMore && !isFetchingMore && (index >= filteredArticles.length - 5)) {
-          fetchMoreNews();
-      }
+          if (hasMore && !isFetchingMore && (index >= filteredArticles.length - 5)) {
+              fetchMoreNews();
+          }
+      });
   };
 
   if (loading && articles.length === 0) return <div style={{background: '#000', height: '100vh'}} />;
 
   return (
     <main 
+        ref={feedContainerRef}
         className="feed-container" 
-        onScroll={handleScroll} // Tengjum scroll fallið
+        onScroll={handleScroll}
+        style={{
+            height: '100dvh', 
+            width: '100%',
+            overflowY: 'scroll',
+            scrollSnapType: 'y mandatory',
+            scrollBehavior: 'auto' // 'auto' er betra en 'smooth' hér til að scroll-to-top sé instant
+        }}
     >
       
-      {/* --- LEITAR OVERLAY (ÓBREYTT) --- */}
+      {/* --- LEITAR OVERLAY --- */}
       {showSearch && (
           <div className="search-overlay">
               <div className="search-top-bar">
@@ -264,6 +304,7 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
               </div>
 
               <div style={{overflowY: 'auto', flex: 1}}>
+                {/* Hér er "Vinsælt núna" hlutinn aftur kominn inn! */}
                 {!searchQuery && searchResults.length === 0 && (
                     <div className="popular-section">
                         <h3 style={{color:'#888', fontSize:'0.8rem', textTransform:'uppercase', letterSpacing:'1px', marginBottom:'10px'}}>Vinsælt núna</h3>
@@ -292,18 +333,21 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
           </div>
       )}
 
-      {/* --- VENJULEGT FEED MEÐ VIRTUALIZATION --- */}
+      {/* --- VENJULEGT FEED --- */}
+      {filteredArticles.length === 0 && !loading && (
+          <div style={{height: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888'}}>
+              Engar fréttir fundust í þessum flokki.
+          </div>
+      )}
+
       {filteredArticles.map((article, index) => {
         // VIRTUALIZATION LOGIC:
-        // Er þessi frétt nálægt skjánum? (Núverandi + 2 fyrir ofan/neðan)
         const isVisible = Math.abs(activeIndex - index) <= 2;
 
         if (!isVisible) {
-            // Ef ekki sýnileg, teikna tóman kassa til að halda plássinu
             return <div key={article.id} style={{height: '100dvh', width: '100%', scrollSnapAlign: 'start'}} />;
         }
 
-        // Ef sýnileg, teikna alvöru kortið
         return (
             <NewsCard 
                 key={article.id} 
@@ -316,14 +360,13 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
         );
       })}
 
-      {/* Hleðslumerki í botninum ef við erum að sækja meira */}
       {isFetchingMore && (
-          <div style={{height: '100px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888'}}>
+          <div style={{height: '100px', scrollSnapAlign: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888'}}>
               Sæki fleiri fréttir...
           </div>
       )}
 
-      {/* --- GLOBAL READER (ÓBREYTT) --- */}
+      {/* --- GLOBAL READER --- */}
       {readingArticle && (
           <div style={{position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', zIndex: 200, background: 'black'}}>
               <NewsCard 
