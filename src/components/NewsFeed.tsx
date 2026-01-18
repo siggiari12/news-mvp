@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import NewsCard from "./NewsCard";
 import { supabaseBrowser } from "@/lib/supabase";
 
@@ -16,13 +16,18 @@ interface NewsFeedProps {
   activeCategory: any;
   showSearchProp: boolean;
   onCloseSearch: () => void;
-  // NÝTT: Fall til að láta parent vita hvort frétt sé opin (til að fela header)
   onArticleStateChange?: (isOpen: boolean) => void;
 }
 
 export default function NewsFeed({ initialArticles, activeCategory, showSearchProp, onCloseSearch, onArticleStateChange }: NewsFeedProps) {
   const [articles, setArticles] = useState<any[]>(initialArticles || []);
   const [loading, setLoading] = useState(initialArticles ? false : true);
+  
+  // --- PAGINATION & VIRTUALIZATION STATES ---
+  const [offset, setOffset] = useState(0);      // Hversu margar fréttir erum við búin að sækja
+  const [hasMore, setHasMore] = useState(true); // Eru til fleiri fréttir?
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0); // Hvaða frétt er á skjánum núna?
   
   // --- LEIT ---
   const [showSearch, setShowSearch] = useState(false);
@@ -43,7 +48,6 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
   const [readingArticle, setReadingArticle] = useState<any | null>(null);
   const [isReaderExpanded, setIsReaderExpanded] = useState(false); 
 
-  // --- NÝTT: Láta parent vita ef eitthvað er opið ---
   useEffect(() => {
     if (onArticleStateChange) {
         const isAnyArticleOpen = !!readingId || !!readingArticle;
@@ -59,7 +63,6 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
   const openGlobalArticle = (article: any) => {
       setReadingArticle(article);
       setIsReaderExpanded(false); 
-      // Ef smellt er úr leit, lokum leitinni líka
       if (showSearch) onCloseSearch();
   };
 
@@ -81,22 +84,72 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
       }
   };
 
-  const fetchNews = async () => {
+    // --- UPPHAFLEG SÓKN (RESET) ---
+  const fetchInitialNews = async () => {
     if (isBusyRef.current) return;
+    setLoading(true);
     const deviceId = localStorage.getItem('vizka_device_id') || 'unknown';
     
-    const { data } = await supabaseBrowser
-      .rpc('get_ranked_feed', { 
-        device_id_input: deviceId,
-        limit_count: 60, 
-        offset_count: 0 
-      });
-    
-    if (data) {
-      setArticles(formatData(data));
-      setLoading(false);
+    try {
+        const { data } = await supabaseBrowser
+          .rpc('get_ranked_feed', { 
+            device_id_input: deviceId,
+            limit_count: 40, 
+            offset_count: 0 
+          });
+        
+        if (data && data.length > 0) {
+          setArticles(formatData(data));
+          setOffset(40);
+          setHasMore(true);
+        }
+    } catch (e) {
+        console.error("Villa við að sækja fréttir:", e);
+    } finally {
+        setLoading(false);
     }
   };
+
+  // --- SÆKJA MEIRA (INFINITE SCROLL) ---
+  const fetchMoreNews = async () => {
+    if (isFetchingMore || !hasMore) return;
+    setIsFetchingMore(true);
+
+    const deviceId = localStorage.getItem('vizka_device_id') || 'unknown';
+    const nextOffset = offset;
+    const limit = 20; 
+
+    try {
+        const { data } = await supabaseBrowser
+          .rpc('get_ranked_feed', { 
+            device_id_input: deviceId,
+            limit_count: limit, 
+            offset_count: nextOffset 
+          });
+
+        if (data && data.length > 0) {
+            setArticles(prev => {
+                const newArticles = formatData(data);
+                // Búum til lista af ID-um sem við eigum nú þegar
+                const existingIds = new Set(prev.map(a => a.id));
+                
+                // Síum út nýju fréttirnar: Tökum bara þær sem eru EKKI til nú þegar
+                const uniqueNewArticles = newArticles.filter(a => !existingIds.has(a.id));
+
+                return [...prev, ...uniqueNewArticles];
+            });
+            setOffset(prev => prev + limit);
+        } else {
+            setHasMore(false);
+        }
+    } catch (e) {
+        console.error("Villa við að sækja fleiri fréttir:", e);
+    } finally {
+        // MIKILVÆGT: Þetta verður að keyra til að opna fyrir næsta scroll
+        setIsFetchingMore(false);
+    }
+  };
+
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -139,20 +192,21 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
   useEffect(() => {
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
     window.scrollTo(0, 0);
-    fetchNews(); 
+    // Ef við fengum ekki initialArticles, sækjum þær
+    if (articles.length === 0) fetchInitialNews();
     
-    const handleVisibilityChange = () => { if (document.visibilityState === 'visible') fetchNews(); };
+    // Refresh logic (óbreytt)
+    const handleVisibilityChange = () => { if (document.visibilityState === 'visible') fetchInitialNews(); };
     document.addEventListener("visibilitychange", handleVisibilityChange);
-    const channel = supabaseBrowser.channel('realtime-topics').on('postgres_changes', { event: '*', schema: 'public', table: 'topics' }, () => fetchNews()).subscribe();
-    const interval = setInterval(() => { fetchNews(); }, 60000);
+    const interval = setInterval(() => { fetchInitialNews(); }, 300000); // Hækkaði í 5 mín refresh til að trufla ekki scroll
 
     return () => { 
-      supabaseBrowser.removeChannel(channel); 
       clearInterval(interval);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
 
+  // --- FILTERING ---
   const filteredArticles = articles.filter(article => {
     const cat = (article.category || '').toLowerCase().trim();
     const imp = article.importance || 0;
@@ -164,16 +218,34 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
     return cat === activeCategory;
   });
 
-  if (loading) return <div style={{background: '#000', height: '100vh'}} />;
+  // --- SCROLL HANDLER (Virtualization & Infinite Scroll) ---
+  const handleScroll = (e: React.UIEvent<HTMLElement>) => {
+      const target = e.currentTarget;
+      const height = target.clientHeight;
+      const scrollTop = target.scrollTop;
+      
+      // 1. Reikna hvaða index er á skjánum
+      const index = Math.round(scrollTop / height);
+      setActiveIndex(index);
+
+      // 2. Infinite Scroll: Ef við erum nálægt botninum (innan við 5 fréttir), sækja meira
+      // Við miðum við filteredArticles lengdina
+      if (hasMore && !isFetchingMore && (index >= filteredArticles.length - 5)) {
+          fetchMoreNews();
+      }
+  };
+
+  if (loading && articles.length === 0) return <div style={{background: '#000', height: '100vh'}} />;
 
   return (
-    <main className="feed-container">
+    <main 
+        className="feed-container" 
+        onScroll={handleScroll} // Tengjum scroll fallið
+    >
       
-      {/* --- LEITAR OVERLAY (NÝTT ÚTLIT) --- */}
+      {/* --- LEITAR OVERLAY (ÓBREYTT) --- */}
       {showSearch && (
           <div className="search-overlay">
-              
-              {/* Top Bar (í stað Header) */}
               <div className="search-top-bar">
                 <SearchIcon />
                 <form onSubmit={handleSearch} style={{flex: 1, position: 'relative'}}>
@@ -191,10 +263,7 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
                 </button>
               </div>
 
-              {/* Efni í leit */}
               <div style={{overflowY: 'auto', flex: 1}}>
-                
-                {/* Vinsælt (Birtist bara ef engin leit er í gangi) */}
                 {!searchQuery && searchResults.length === 0 && (
                     <div className="popular-section">
                         <h3 style={{color:'#888', fontSize:'0.8rem', textTransform:'uppercase', letterSpacing:'1px', marginBottom:'10px'}}>Vinsælt núna</h3>
@@ -206,8 +275,6 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
                         </div>
                     </div>
                 )}
-
-                {/* Niðurstöður */}
                 <div style={{padding: '20px'}}>
                     {isSearching && <p style={{color:'#888'}}>Leita...</p>}
                     {searchResults.map(result => (
@@ -225,19 +292,38 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
           </div>
       )}
 
-      {/* --- VENJULEGT FEED --- */}
-      {filteredArticles.map((article) => (
-        <NewsCard 
-            key={article.id} 
-            article={article}
-            isExpanded={readingId === article.id} 
-            onOpen={() => setReadingId(article.id)} 
-            onClose={() => setReadingId(null)} 
-            onRelatedClick={handleRelatedClick} 
-        />
-      ))}
+      {/* --- VENJULEGT FEED MEÐ VIRTUALIZATION --- */}
+      {filteredArticles.map((article, index) => {
+        // VIRTUALIZATION LOGIC:
+        // Er þessi frétt nálægt skjánum? (Núverandi + 2 fyrir ofan/neðan)
+        const isVisible = Math.abs(activeIndex - index) <= 2;
 
-      {/* --- GLOBAL READER --- */}
+        if (!isVisible) {
+            // Ef ekki sýnileg, teikna tóman kassa til að halda plássinu
+            return <div key={article.id} style={{height: '100dvh', width: '100%', scrollSnapAlign: 'start'}} />;
+        }
+
+        // Ef sýnileg, teikna alvöru kortið
+        return (
+            <NewsCard 
+                key={article.id} 
+                article={article}
+                isExpanded={readingId === article.id} 
+                onOpen={() => setReadingId(article.id)} 
+                onClose={() => setReadingId(null)} 
+                onRelatedClick={handleRelatedClick} 
+            />
+        );
+      })}
+
+      {/* Hleðslumerki í botninum ef við erum að sækja meira */}
+      {isFetchingMore && (
+          <div style={{height: '100px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888'}}>
+              Sæki fleiri fréttir...
+          </div>
+      )}
+
+      {/* --- GLOBAL READER (ÓBREYTT) --- */}
       {readingArticle && (
           <div style={{position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', zIndex: 200, background: 'black'}}>
               <NewsCard 
