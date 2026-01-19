@@ -50,9 +50,13 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
   const [loadingRelated, setLoadingRelated] = useState(false);
   const [formattedTime, setFormattedTime] = useState<string>('');
   
+  
   // NÝTT: State til að fylgjast með hvort myndin sé brotin
   const [imgError, setImgError] = useState(false);
-  
+
+  // Nýtt state fyrir AI bakgrunninn
+  const [backgroundInfo, setBackgroundInfo] = useState<{question: string, answer: string}[]>([]);
+
   const cardRef = useRef<HTMLElement>(null);
   
   const isMultiSourceTopic = (article.article_count || 0) > 1;
@@ -107,19 +111,37 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
     finally { setLoadingText(false); }
   };
 
-  const fetchRelated = async () => {
+    const fetchRelated = async () => {
+    // Ef við erum búin að sækja þetta, sleppum því að sækja aftur
+    if (relatedArticles.length > 0 || backgroundInfo.length > 0) return;
+
     setLoadingRelated(true);
     try {
       const res = await fetch('/api/related', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ articleId: article.id })
       });
+      
       const data = await res.json();
-      const filtered = (data.articles || []).filter((a: Article) => a.id !== article.id);
-      setRelatedArticles(filtered);
-    } catch (e) { console.error("Related error:", e); } finally { setLoadingRelated(false); }
+      
+      // 1. Setjum bakgrunninn (ef einhver)
+      if (data.background) {
+          setBackgroundInfo(data.background);
+      }
+      
+      // 2. Setjum greinarnar (ef einhverjar)
+      if (data.articles) {
+          setRelatedArticles(data.articles);
+      }
+      
+    } catch (e) {
+      console.error("Related error:", e);
+    } finally {
+      setLoadingRelated(false);
+    }
   };
+
 
   const handleOutboundClick = (url: string | undefined, specificSource?: string) => {
       if (!url) return;
@@ -324,18 +346,117 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
                </div>
              </div>
            )}
-           {activeTab === 'related' && (
-             <div>
-                 {loadingRelated ? <div style={{textAlign:'center', color:'#888'}}>Leita...</div> : relatedArticles.map(rel => (
-                     <div key={rel.id} onClick={(e) => { e.stopPropagation(); if (onRelatedClick) onRelatedClick(rel); }} style={{
-                            cursor: 'pointer', marginBottom:'15px', padding:'15px', background: 'rgba(255,255,255,0.05)', borderRadius: '12px'
-                        }}>
-                         <div style={{fontSize:'0.75rem', color:'#aaa', marginBottom:'4px'}}>{rel.sources?.name}</div>
-                         <div style={{fontWeight:'bold', fontSize:'1rem'}}>{rel.title}</div>
-                     </div>
-                 ))}
-             </div>
-           )}
+            {activeTab === 'related' && (
+            <div className="animate-fadeIn" style={{ height: '100%', overflowY: 'auto', paddingBottom: '20px' }}>
+                {loadingRelated ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '200px', color: '#888' }}>
+                        <div className="loading-spinner" style={{ marginBottom: '15px' }}></div>
+                        <div style={{ fontSize: '0.9rem' }}>Greini samhengi og sæki sögu...</div>
+                    </div>
+                ) : (
+                    <>
+                        {/* HLUTI 1: AI CONTEXT / FAKTASPJÖLD */}
+                        {backgroundInfo.length > 0 && (
+                            <div style={{ marginBottom: '35px' }}>
+                                {/* Engin fyrirsögn, spjöldin tala sínu máli */}
+                                
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                                    {backgroundInfo.map((item, idx) => (
+                                        <div key={idx} style={{
+                                            background: 'linear-gradient(145deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%)', // Ljós halli
+                                            backdropFilter: 'blur(10px)', // Gler áferð
+                                            border: '1px solid rgba(255,255,255,0.1)',
+                                            borderRadius: '20px', // Mýkri horn
+                                            padding: '24px',
+                                            boxShadow: '0 4px 15px rgba(0,0,0,0.2)'
+                                        }}>
+                                            <div style={{ 
+                                                display: 'flex', 
+                                                alignItems: 'center', 
+                                                gap: '10px', 
+                                                marginBottom: '8px' 
+                                            }}>
+                                                <span style={{ fontSize: '1.2rem' }}>💡</span>
+                                                <h4 style={{ 
+                                                    margin: 0, 
+                                                    fontSize: '1.1rem', 
+                                                    fontWeight: '700', 
+                                                    color: '#fff',
+                                                    lineHeight: '1.2'
+                                                }}>
+                                                    {item.question}
+                                                </h4>
+                                            </div>
+                                            
+                                            <div style={{ 
+                                                fontSize: '1rem', 
+                                                lineHeight: '1.6', 
+                                                color: 'rgba(255,255,255,0.85)',
+                                                fontWeight: '400',
+                                                paddingLeft: '2px' // Smá indráttur til að jafna við textann ofan
+                                            }}>
+                                                {item.answer}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+
+                        {/* HLUTI 2: TENGDAR FRÉTTIR */}
+                        <div>
+                            <h3 style={{ 
+                                fontSize: '0.75rem', 
+                                textTransform: 'uppercase', 
+                                letterSpacing: '1px', 
+                                color: '#aaa', 
+                                marginBottom: '10px', 
+                                borderBottom: '1px solid rgba(255,255,255,0.1)', 
+                                paddingBottom: '5px' 
+                            }}>
+                                Eldra efni & Tengt
+                            </h3>
+
+                            {relatedArticles.length === 0 ? (
+                                <div style={{ color: '#666', fontStyle: 'italic', fontSize: '0.9rem', textAlign: 'center', marginTop: '20px' }}>
+                                    Engar tengdar fréttir fundust.
+                                </div>
+                            ) : (
+                                relatedArticles.map(rel => (
+                                    <div key={rel.id} 
+                                         onClick={(e) => { 
+                                             e.stopPropagation(); 
+                                             if (onRelatedClick) onRelatedClick(rel); 
+                                         }} 
+                                         style={{
+                                            cursor: 'pointer', 
+                                            marginBottom: '10px', 
+                                            padding: '12px', 
+                                            background: 'rgba(255,255,255,0.03)', 
+                                            borderRadius: '8px',
+                                            border: '1px solid rgba(255,255,255,0.05)',
+                                            transition: 'background 0.2s'
+                                         }}
+                                         onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
+                                         onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
+                                    >
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#888', marginBottom: '4px' }}>
+                                            <span style={{color: '#aaa'}}>{rel.sources?.name || 'Frétt'}</span>
+                                            <span>{new Date(rel.published_at).toLocaleDateString('is-IS')}</span>
+                                        </div>
+                                        <div style={{ fontWeight: '500', fontSize: '0.9rem', lineHeight: '1.3', color: '#fff' }}>
+                                            {rel.title}
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </>
+                )}
+            </div>
+        )}
+
            <div onClick={onClose} style={{marginTop: '40px', padding:'20px', display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'pointer', opacity: 0.6}}>
              <div style={{background:'rgba(255,255,255,0.1)', borderRadius:'50%', padding:'10px', marginBottom:'10px'}}>
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6"/></svg>

@@ -17,23 +17,35 @@ export default function FeedWrapper({ initialArticles }: Props) {
   // State til að fela UI þegar frétt er opin (Full screen mode)
   const [isArticleOpen, setIsArticleOpen] = useState(false);
 
+  // Sameiginleg breyta: Ef frétt er opin EÐA leit er opin -> Fela UI
+  const shouldHideUI = isArticleOpen || showSearch;
+
   return (
     <main className="h-screen w-full bg-black text-white overflow-hidden relative touch-none">
       
-      {/* HEADER: Z-index 50 (yfir feed) */}
+      {/* HEADER: Z-index 50. 
+          Við sendum isHidden={shouldHideUI} inn í Header.
+          (Mundu að Header.tsx verður að taka við 'isHidden' propinu eins og við ræddum) 
+      */}
       <div className="absolute top-0 left-0 right-0 z-50">
         <Header 
             isMenuOpen={showMenu}
             onMenuClick={() => setShowMenu(!showMenu)} 
-            onSearchClick={() => setShowSearch(!showSearch)} 
+            onSearchClick={() => setShowSearch(!showSearch)}
+            // @ts-ignore (Ef þú ert ekki búinn að uppfæra Header interfaceið ennþá)
+            isHidden={shouldHideUI} 
         />
       </div>
 
-      {/* FLOKKAR: Z-index 40. Hverfa þegar frétt/leit er opin */}
-      <div className={`absolute top-16 left-0 right-0 z-40 transition-opacity duration-300 ${isArticleOpen || showSearch ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+      {/* FLOKKAR: Z-index 40. 
+          Við sendum isHidden={shouldHideUI} inn í CategoryFilter.
+      */}
+      <div className="absolute top-16 left-0 right-0 z-40">
         <CategoryFilter 
           activeCategory={activeCategory} 
           onSelectCategory={setActiveCategory} 
+          // @ts-ignore (Ef þú ert ekki búinn að uppfæra CategoryFilter interfaceið ennþá)
+          isHidden={shouldHideUI}
         />
       </div>
 
