@@ -18,16 +18,10 @@ const RSS_FEEDS = [
   'http://rss.cnn.com/rss/edition_world.rss',
 ];
 
-// --- HJÁLPARFÖLL ---
-function cleanTitle(text: string) {
-  return text.toLowerCase().replace(/\|.*$/, '').replace(/-.*$/, '').replace(/[^\w\sáðéíóúýþæö]/g, '').replace(/\s{2,}/g, " ").trim();
-}
-
-// --- NÝTT: Hreinsar URL svo við fáum ekki duplicates út af query params ---
+// --- HJÁLPARFÖLL (ÓBREYTT) ---
 function normalizeUrl(url: string): string {
     try {
         const urlObj = new URL(url);
-        // Fjarlægum allt eftir ? (query params)
         return urlObj.origin + urlObj.pathname;
     } catch (e) {
         return url;
@@ -65,7 +59,7 @@ function aggressiveClean(text: string): string {
         .map(line => line.trim())
         .filter(line => {
             const l = line.toLowerCase();
-            if (l.length < 20) return false; 
+            if (l.length < 5) return false; 
             if (l.includes('published time:')) return false;
             if (l.includes('markdown content:')) return false;
             if (l.includes('url source:')) return false;
@@ -82,12 +76,19 @@ function aggressiveClean(text: string): string {
         .join('\n');
 }
 
-async function processArticle(title: string, rawText: string, rssSnippet: string, defaultCategory: string) {
+async function processArticle(title: string, rawText: string, rssSnippet: string, defaultCategory: string, url: string) {
   try {
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
+    
+    if (!rawText || rawText.length < 50) {
+        return { text: rssSnippet, category: defaultCategory, importance: 0, title: title };
+    }
+
     const cleanedInput = aggressiveClean(rawText).substring(0, 15000);
 
-    if (cleanedInput.length < 50) throw new Error("Texti of stuttur eftir hreinsun");
+    if (cleanedInput.length < 50) {
+        return { text: rssSnippet, category: defaultCategory, importance: 0, title: title };
+    }
 
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini", 
@@ -100,7 +101,7 @@ async function processArticle(title: string, rawText: string, rssSnippet: string
             "summary": "3-4 málsgreina samantekt. Hlutlaus og grípandi.",
             "category": "innlent" | "erlent" | "sport" | "folk",
             "importance": "Heiltala 1-10.",
-            "clean_title": "Titillinn"
+            "clean_title": "Titillinn (lagfærður ef þarf)"
           }`
         },
         {
@@ -122,7 +123,7 @@ async function processArticle(title: string, rawText: string, rssSnippet: string
     };
 
   } catch (e) {
-    console.error("AI fail:", e);
+    console.error(`AI fail fyrir ${url}:`, e);
     return { text: rssSnippet, category: defaultCategory, importance: 0, title: title };
   }
 }
@@ -134,11 +135,11 @@ async function fetchContentAndImage(url: string) {
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const timeoutId = setTimeout(() => controller.abort(), 6000); 
     const rawRes = await fetch(url, { 
         signal: controller.signal,
         headers: { 
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)', 
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
         }
     });
@@ -147,30 +148,55 @@ async function fetchContentAndImage(url: string) {
     if (rawRes.ok) {
         html = await rawRes.text();
         const $ = cheerio.load(html);
-        ogImage = $('meta[property="og:image"]').attr('content') || null;
+        ogImage = $('meta[property="og:image"]').attr('content') || 
+                  $('meta[name="twitter:image"]').attr('content') || null;
     }
-  } catch (e) { console.log("Raw HTML fail:", e); }
+  } catch (e) { }
 
-  let text = null;
+  let text: string | null = null;
+
   try {
-    const res = await fetch(`https://r.jina.ai/${url}`);
+    const res = await fetch(`https://r.jina.ai/${url}`, {
+        headers: { 'X-No-Cache': 'true' } 
+    });
     if (res.ok) {
         const markdown = await res.text();
-        const imageMatch = markdown.match(/!\[.*?\]\((.*?)\)/);
-        if (imageMatch && !ogImage) { jinaImage = imageMatch[1]; }
-        text = markdown.replace(/!\[.*?\]\(.*?\)/g, '').replace(/\[(.*?)\]\(.*?\)/g, '$1').replace(/[#*`_]/g, '').trim();
+        if (markdown.length > 200 && !markdown.includes("403 Forbidden")) {
+            const imageMatch = markdown.match(/!\[.*?\]\((.*?)\)/);
+            if (imageMatch && !ogImage) { jinaImage = imageMatch[1]; }
+            text = markdown.replace(/!\[.*?\]\(.*?\)/g, '')
+                           .replace(/\[(.*?)\]\(.*?\)/g, '$1')
+                           .replace(/[#*`_]/g, '')
+                           .trim();
+        }
     }
-  } catch (error) { console.log("Jina fail..."); }
+  } catch (error) { }
 
   if (html && (!text || text.length < 300)) {
       try {
           const $ = cheerio.load(html);
-          text = $('p').map((i, el) => $(el).text()).get().join('\n\n');
-      } catch (e) { console.error("Cheerio parse fail:", e); }
+          $('script, style, nav, footer, header, form, iframe, .advertisement, .related-items').remove();
+          const selectors = ['article', '.article-body', '.story-body', '.main-content', '#main-content', '.frett-texti'];
+          let foundText = '';
+          for (const selector of selectors) {
+              if ($(selector).length > 0) {
+                  foundText = $(selector).find('p, h2, h3').map((i, el) => $(el).text().trim()).get().join('\n\n');
+                  if (foundText.length > 200) break;
+              }
+          }
+          if (foundText.length < 200) {
+              foundText = $('p').map((i, el) => {
+                  const t = $(el).text().trim();
+                  return t.length > 20 ? t : null;
+              }).get().join('\n\n');
+          }
+          text = foundText;
+      } catch (e) { }
   }
   
   return { text: text, image: ogImage || jinaImage };
 }
+
 
 async function generateEmbedding(text: string) {
   try {
@@ -183,70 +209,7 @@ async function generateEmbedding(text: string) {
   } catch (e) { return null; }
 }
 
-// --- ALGJÖRLEGA ENDURSKRIFAÐ: TOPIC LOGIC ---
-// Þetta leysir "2 miðlar" vandamálið með því að tengja fréttir saman
-async function assignTopic(supa: any, articleId: string, title: string, embedding: any | null, imageUrl: string | null, category: string, sourceId: string) {
-    if (!embedding) return;
-
-    // 1. Finnum LÍKAR fréttir (ekki endilega topic strax)
-    // match_threshold: 0.82 er passlegt (0.75 var of lágt, 0.9 of hátt)
-    const { data: similarArticles } = await supa.rpc('match_articles_for_topic', { 
-        query_embedding: embedding, 
-        match_threshold: 0.82, 
-        match_count: 5 
-    });
-
-    let targetTopicId = null;
-
-    if (similarArticles && similarArticles.length > 0) {
-        // Skoðum bestu samsvörunina sem er EKKI frá sama miðli (helst)
-        // En ef hún er frá sama miðli og mjög lík, þá er þetta kannski uppfærsla
-        const bestMatch = similarArticles[0];
-
-        // Ef besta samsvörun hefur nú þegar topic ID, þá hoppum við á vagninn
-        if (bestMatch.topic_id) {
-            targetTopicId = bestMatch.topic_id;
-        } else {
-            // "2 MIÐLAR" GALDURINN:
-            // Besta samsvörun er "einhleyp" frétt. Við búum til nýtt Topic fyrir þær báðar!
-            console.log(`Creating new group from article ${articleId} and ${bestMatch.id}`);
-            
-            const { data: newTopic, error } = await supa.from('topics')
-                .insert({ 
-                    title: title, // Notum titil nýju fréttarinnar sem topic titil (í bili)
-                    category: category, 
-                    image_url: cleanImageUrl(imageUrl) || cleanImageUrl(bestMatch.image_url), 
-                    article_count: 2,
-                    updated_at: new Date().toISOString()
-                })
-                .select()
-                .single();
-            
-            if (newTopic && !error) {
-                targetTopicId = newTopic.id;
-                // Uppfærum GÖMLU fréttina svo hún tilheyri nýja hópnum
-                await supa.from('articles').update({ topic_id: targetTopicId }).eq('id', bestMatch.id);
-            }
-        }
-    }
-
-    // Ef við fundum topic (annað hvort tilbúið eða nýbúið), tengjum nýju fréttina
-    if (targetTopicId) {
-        await supa.from('articles').update({ topic_id: targetTopicId }).eq('id', articleId);
-        
-        // Uppfærum teljarann á topicinu (mikilvægt fyrir "Eldur" merkið)
-        // Við endurreiknum fjöldann til að vera nákvæm
-        const { count } = await supa.from('articles').select('*', { count: 'exact', head: true }).eq('topic_id', targetTopicId);
-        await supa.from('topics').update({ 
-            article_count: count, 
-            updated_at: new Date().toISOString() 
-        }).eq('id', targetTopicId);
-    } 
-    // Ef engin topic fannst (fréttin er einstök), þá gerum við ekki neitt. 
-    // Hún er bara sýnd sem stök frétt þangað til önnur kemur sem passar við hana.
-}
-
-// --- MAIN GET ---
+// --- MAIN GET (Optimized: Parallel Prep -> Serial Save) ---
 export async function GET() {
   const supa = supabaseServer();
   const parser = new Parser({ customFields: { item: [['media:content', 'media'], ['media:thumbnail', 'thumbnail'], ['enclosure', 'enclosure']] }});
@@ -254,6 +217,8 @@ export async function GET() {
   let totalSaved = 0;
 
   try {
+    // --- 1. COLLECT PHASE (Parallel Feeds) ---
+    // Sækjum alla RSS lista í einu
     const feedPromises = RSS_FEEDS.map(async (feedUrl) => {
       try {
         const feed = await parser.parseURL(feedUrl);
@@ -282,88 +247,222 @@ export async function GET() {
         }
 
         if (source) {
-            const items = feed.items?.slice(0, 10) || [];
-            const itemPromises = items.map(async (item) => {
-                const rawUrl = item.link || '';
-                if (!rawUrl) return 0;
-                
-                // --- BREYTING 1: URL Normalization ---
-                const url = normalizeUrl(rawUrl);
-
-                // --- BREYTING 2: Tvítekningavörn (Sama URL) ---
-                const { data: existing } = await supa.from('articles').select('id').eq('url', url).maybeSingle();
-                if (existing) return 0;
-
-                // --- BREYTING 3: Tvítekningavörn (Sama efni frá sama source) ---
-                // Stundum breytist URLið örlítið en titillinn er sá sami. 
-                // Ef við erum nýbúin að vista frétt með sama titil frá sama miðli, sleppum henni.
-                const { data: duplicateContent } = await supa.from('articles')
-                    .select('id')
-                    .eq('source_id', source.id)
-                    .ilike('title', item.title || '') // Case-insensitive match
-                    .gt('published_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()) // Síðustu 24 tíma
-                    .maybeSingle();
-                
-                if (duplicateContent) {
-                    console.log(`Skipping duplicate content from same source: ${item.title}`);
-                    return 0;
-                }
-
-                // Myndavinnsla
-                let imageUrl = null;
-                if (item.media && item.media['$'] && item.media['$'].url) imageUrl = item.media['$'].url;
-                else if (item.thumbnail && item.thumbnail['$'] && item.thumbnail['$'].url) imageUrl = item.thumbnail['$'].url;
-                else if (item.enclosure && item.enclosure.url) imageUrl = item.enclosure.url;
-
-                const scraped = await fetchContentAndImage(url);
-                if (!imageUrl && scraped.image) imageUrl = scraped.image;
-                imageUrl = cleanImageUrl(imageUrl);
-
-                const processed = await processArticle(
-                    item.title || '', 
-                    scraped.text || item.contentSnippet || '', 
-                    item.contentSnippet || '', 
-                    defaultCategory
-                );
-
-                const embeddingText = (processed.title || '') + " " + (scraped.text || "").substring(0, 2000);
-                const embedding = await generateEmbedding(embeddingText);
-
-                const hash = crypto.createHash('md5').update(((item.title || '') + url).toLowerCase()).digest('hex');
-                
-                const articleData = {
-                    source_id: source.id,
-                    title: processed.title, 
-                    excerpt: (item.contentSnippet || '').substring(0, 300),
-                    full_text: processed.text, 
-                    url: url, // Vistum hreinsað URL
-                    published_at: item.isoDate ? new Date(item.isoDate) : new Date(),
-                    language: defaultCategory === 'erlent' ? 'en' : 'is',
-                    image_url: imageUrl,
-                    hash: hash,
-                    category: processed.category,
-                    importance: processed.importance 
-                };
-
-                const { data: saved, error } = await supa.from('articles').upsert(articleData, { onConflict: 'url' }).select().single();
-                
-                if (!error && saved && embedding) {
-                    await supa.from('article_embeddings').upsert({ article_id: saved.id, embedding });
-                    // Sendum source.id með í assignTopic
-                    await assignTopic(supa, saved.id, processed.title, embedding, imageUrl, processed.category, source.id);
-                    return 1;
-                }
-                return 0;
-            });
-            const results = await Promise.all(itemPromises);
-            return results.reduce((a: number, b) => (a || 0) + (b || 0), 0);
+            // Skilum items með source upplýsingum
+            return (feed.items?.slice(0, 8) || []).map(item => ({
+                item,
+                sourceObj: source,
+                defaultCategory
+            }));
         }
-        return 0;
-      } catch (e) { console.error(`Villa í feed ${feedUrl}:`, e); return 0; }
+        return [];
+      } catch (e) { 
+          console.error(`Villa í feed ${feedUrl}:`, e); 
+          return [];
+      }
     });
-    const results = await Promise.all(feedPromises);
-    totalSaved = results.reduce((a: number, b) => a + b, 0);
+
+    const feedResults = await Promise.all(feedPromises);
+    const allItems = feedResults.flat();
+
+    // --- 2. FILTER PHASE (Batch DB Check) ---
+    // Finnum hvaða URLs eru þegar til í DB til að sleppa við AI vinnslu á þeim
+    const urlsToCheck = allItems.map(i => normalizeUrl(i.item.link || ''));
+    // Hentum tómum URLs
+    const validUrls = urlsToCheck.filter(u => u.length > 5);
+    
+    // Sækjum existing URLs í einu kalli
+    const { data: existingArticles } = await supa.from('articles').select('url').in('url', validUrls);
+    const existingUrlSet = new Set(existingArticles?.map(a => a.url) || []);
+
+    const newItems = allItems.filter(i => {
+        const u = normalizeUrl(i.item.link || '');
+        return u.length > 5 && !existingUrlSet.has(u);
+    });
+
+    console.log(`Fann ${allItems.length} samtals, ${newItems.length} eru nýjar. Vinn samsíða...`);
+
+    // --- 3. PREP PHASE (Parallel Processing) ---
+    // Hér gerist töfrarnir. GPT og Scraping keyrir samsíða fyrir allar nýjar fréttir.
+    const processedResults = await Promise.all(newItems.map(async (data) => {
+        try {
+            const { item, sourceObj, defaultCategory } = data;
+            const url = normalizeUrl(item.link || '');
+            
+            // Image handling
+            let imageUrl = null;
+            if (item.media && item.media['$'] && item.media['$'].url) imageUrl = item.media['$'].url;
+            else if (item.thumbnail && item.thumbnail['$'] && item.thumbnail['$'].url) imageUrl = item.thumbnail['$'].url;
+            else if (item.enclosure && item.enclosure.url) imageUrl = item.enclosure.url;
+
+            // Fetch HTML & Jina
+            const scraped = await fetchContentAndImage(url);
+            if (!imageUrl && scraped.image) imageUrl = scraped.image;
+            imageUrl = cleanImageUrl(imageUrl);
+
+            // GPT Summary
+            const processed = await processArticle(
+                item.title || '', 
+                scraped.text || item.contentSnippet || '', 
+                item.contentSnippet || '', 
+                defaultCategory,
+                url
+            );
+
+            // GPT Embedding
+            const embeddingText = (processed.title || '') + " " + (scraped.text || "").substring(0, 2000);
+            const embedding = await generateEmbedding(embeddingText);
+
+            return {
+                success: true,
+                url,
+                item,
+                sourceObj,
+                imageUrl,
+                processed,
+                embedding,
+                isoDate: item.isoDate
+            };
+        } catch (e) {
+            return { success: false };
+        }
+    }));
+
+    // --- 4. SORT PHASE (Time Logic) ---
+    // Hentum feilum og röðum eftir tíma (ELSTA FYRST)
+    const validResults = processedResults.filter((r: any) => r.success && r.embedding) as any[];
+    
+    validResults.sort((a, b) => {
+        const dateA = a.isoDate ? new Date(a.isoDate).getTime() : 0;
+        const dateB = b.isoDate ? new Date(b.isoDate).getTime() : 0;
+        return dateA - dateB; // Minna (eldra) fer fremst
+    });
+
+    // --- 5. SAVE PHASE (Serial Execution) ---
+    // Nú lykkjum við hratt í gegn til að vista og tengja topics
+    for (const res of validResults) {
+        const { item, sourceObj, url, imageUrl, processed, embedding } = res;
+
+        // Tvítekningavörn á titli (Sami miðill) - Öryggisnet
+        const { data: duplicateContent } = await supa.from('articles')
+            .select('id')
+            .eq('source_id', sourceObj.id)
+            .ilike('title', processed.title || '') 
+            .gt('published_at', new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()) 
+            .maybeSingle();
+        
+        if (duplicateContent) continue;
+
+        // Matching
+        const { data: matches } = await supa.rpc('match_articles_for_topic', {
+            query_embedding: embedding,
+            match_threshold: 0.75,
+            match_count: 8
+        });
+
+        let matchDetails: any[] = [];
+        if (matches && matches.length > 0) {
+            const matchIds = matches.map((m: any) => m.id);
+            const { data: fetchedDetails } = await supa.from('articles')
+                .select('id, source_id, topic_id, image_url, title, category')
+                .in('id', matchIds);
+            matchDetails = fetchedDetails || [];
+        }
+
+        // Semantic Duplicate Check
+        const exactDuplicate = matchDetails.find((d: any) => {
+                const matchScore = matches.find((m:any) => m.id === d.id)?.similarity || 0;
+                return d.source_id === sourceObj.id && matchScore > 0.94;
+        });
+
+        if (exactDuplicate) {
+            await supa.from('articles').update({
+                title: processed.title,
+                published_at: new Date().toISOString(),
+                image_url: imageUrl || exactDuplicate.image_url,
+                full_text: processed.text
+            }).eq('id', exactDuplicate.id);
+            continue; 
+        }
+
+        // Vista
+        const hash = crypto.createHash('md5').update(((item.title || '') + url).toLowerCase()).digest('hex');
+        
+        const articleData = {
+            source_id: sourceObj.id,
+            title: processed.title, 
+            excerpt: (item.contentSnippet || processed.text.substring(0, 300) || '').substring(0, 300),
+            full_text: processed.text, 
+            url: url, 
+            published_at: item.isoDate ? new Date(item.isoDate) : new Date(),
+            language: processed.category === 'erlent' ? 'en' : 'is',
+            image_url: imageUrl,
+            hash: hash,
+            category: processed.category,
+            importance: processed.importance 
+        };
+
+        const { data: saved, error } = await supa.from('articles').upsert(articleData, { onConflict: 'url' }).select().single();
+        
+        if (!error && saved) {
+            await supa.from('article_embeddings').upsert({ article_id: saved.id, embedding });
+            totalSaved++;
+
+            // TOPIC LOGIC (Serial - First come first served)
+            const topicCandidates = matchDetails.filter((d: any) => {
+                const matchScore = matches.find((m:any) => m.id === d.id)?.similarity || 0;
+                return d.id !== saved.id && matchScore > 0.76; 
+            });
+
+            let targetTopicId = null;
+
+            if (topicCandidates.length > 0) {
+                let bestMatch = topicCandidates.find((c: any) => c.topic_id && c.source_id !== sourceObj.id);
+                if (!bestMatch) bestMatch = topicCandidates.find((c: any) => c.source_id !== sourceObj.id);
+                if (!bestMatch) bestMatch = topicCandidates[0];
+
+                if (bestMatch) {
+                    targetTopicId = bestMatch.topic_id;
+                    if (!targetTopicId) {
+                        const { data: newTopic } = await supa.from('topics').insert({
+                            title: bestMatch.title, // Use OLDER article title
+                            category: bestMatch.category,
+                            image_url: bestMatch.image_url,
+                            article_count: 1,
+                            updated_at: new Date().toISOString()
+                        }).select().single();
+                        
+                        if (newTopic) {
+                            targetTopicId = newTopic.id;
+                            await supa.from('articles').update({ topic_id: targetTopicId }).eq('id', bestMatch.id);
+                        }
+                    }
+                }
+            }
+
+            if (targetTopicId) {
+                // Merge into existing topic
+                await supa.from('articles').update({ topic_id: targetTopicId }).eq('id', saved.id);
+                const { count } = await supa.from('articles').select('*', { count: 'exact', head: true }).eq('topic_id', targetTopicId);
+                await supa.from('topics').update({ article_count: count, updated_at: new Date().toISOString() }).eq('id', targetTopicId);
+            } else {
+                // Create FRESH topic
+                const { data: newTopic } = await supa.from('topics').insert({
+                    title: saved.title,
+                    category: saved.category,
+                    image_url: saved.image_url,
+                    article_count: 1,
+                    updated_at: new Date().toISOString()
+                }).select().single();
+
+                if (newTopic) {
+                    await supa.from('articles').update({ topic_id: newTopic.id }).eq('id', saved.id);
+                }
+            }
+        }
+    }
+    
     const duration = (Date.now() - startTime) / 1000;
     return NextResponse.json({ success: true, count: totalSaved, time: `${duration}s` });
+
   } catch (error: any) { return NextResponse.json({ error: error.message }, { status: 500 }); }
 }

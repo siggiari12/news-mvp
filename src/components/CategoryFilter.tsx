@@ -11,7 +11,7 @@ export default function CategoryFilter({ activeCategory, onSelectCategory, isHid
     { id: 'allt', label: 'ALLT' },
     { id: 'innlent', label: 'INNLENT' },
     { id: 'erlent', label: 'ERLENT' },
-    { id: 'folk', label: 'FÓLKIÐ' },
+    { id: 'folk', label: 'FÓLK' },
     { id: 'sport', label: 'ÍÞRÓTTIR' },
   ];
 

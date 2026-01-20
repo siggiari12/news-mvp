@@ -249,7 +249,7 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
           opacity: isExpanded ? 0 : 1, transition: 'opacity 0.3s ease'
       }}></div>
 
-      {/* 4. LOKA TAKKI */}
+      {/* 4. LOKA TAKKI (FRAMHLIÐ) */}
       {showCloseButton && !isExpanded && (
           <button onClick={(e) => { e.stopPropagation(); onClose(); }} style={{
                 position: 'absolute', top: '20px', right: '20px', zIndex: 50,
@@ -273,7 +273,7 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
             </div>
             {isMultiSourceTopic && (
                 <div style={{background: 'rgba(255, 69, 58, 0.9)', color: 'white', padding: '2px 6px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold'}}>
-                    🔥 {article.article_count}
+                    🔥 {article.article_count} miðlar
                 </div>
             )}
         </div>
@@ -293,7 +293,7 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
       }}>
         <svg className="arrow-bounce" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 15l-6-6-6 6"/></svg>
         <span style={{fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '2px', fontWeight: 'bold', marginTop: '5px', textShadow: '0 2px 4px rgba(0,0,0,0.8)'}}>
-            {isMultiSourceTopic ? 'Sjá umfjöllun' : 'Lesa meira'}
+            {isMultiSourceTopic ? 'Lesa meira' : 'Lesa meira'}
         </span>
       </div>
 
@@ -308,11 +308,19 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
       }}>
         <div style={{padding: '0 20px 10px 20px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '15px'}}>
           <h2 style={{fontSize: '1.4rem', fontWeight: 'bold', margin: 0, textShadow: '0 2px 10px rgba(0,0,0,0.8)', flex: 1, lineHeight: '1.3'}}>{article.title}</h2>
+          
+          {/* LINSULAUST X - Fyrir baksíðu og tengdar fréttir */}
           <button onClick={(e) => { e.stopPropagation(); onClose(); }} style={{
-                 background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '50%', width: '36px', height: '36px', 
-                 display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'white', flexShrink: 0, backdropFilter: 'blur(10px)'
+                 background: 'transparent', // VAR: 'rgba(255,255,255,0.15)'
+                 border: 'none', 
+                 borderRadius: '50%', 
+                 width: '36px', 
+                 height: '36px', 
+                 display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'white', flexShrink: 0, 
+                 // backdropFilter: 'blur(10px)' // FJARLÆGT
+                 filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))' // Bætt við skugga svo krossinn sjáist betur
              }}>
-             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
            </button>
         </div>
 
@@ -358,15 +366,13 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
                         {/* HLUTI 1: AI CONTEXT / FAKTASPJÖLD */}
                         {backgroundInfo.length > 0 && (
                             <div style={{ marginBottom: '35px' }}>
-                                {/* Engin fyrirsögn, spjöldin tala sínu máli */}
-                                
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                                     {backgroundInfo.map((item, idx) => (
                                         <div key={idx} style={{
-                                            background: 'linear-gradient(145deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%)', // Ljós halli
-                                            backdropFilter: 'blur(10px)', // Gler áferð
+                                            background: 'linear-gradient(145deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%)', 
+                                            backdropFilter: 'blur(10px)', 
                                             border: '1px solid rgba(255,255,255,0.1)',
-                                            borderRadius: '20px', // Mýkri horn
+                                            borderRadius: '20px', 
                                             padding: '24px',
                                             boxShadow: '0 4px 15px rgba(0,0,0,0.2)'
                                         }}>
@@ -393,7 +399,7 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
                                                 lineHeight: '1.6', 
                                                 color: 'rgba(255,255,255,0.85)',
                                                 fontWeight: '400',
-                                                paddingLeft: '2px' // Smá indráttur til að jafna við textann ofan
+                                                paddingLeft: '2px'
                                             }}>
                                                 {item.answer}
                                             </div>
@@ -402,7 +408,6 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
                                 </div>
                             </div>
                         )}
-
 
                         {/* HLUTI 2: TENGDAR FRÉTTIR */}
                         <div>
@@ -457,8 +462,13 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
             </div>
         )}
 
+           {/* LINSULAUS "LOKA" ÖR */}
            <div onClick={onClose} style={{marginTop: '40px', padding:'20px', display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'pointer', opacity: 0.6}}>
-             <div style={{background:'rgba(255,255,255,0.1)', borderRadius:'50%', padding:'10px', marginBottom:'10px'}}>
+             <div style={{
+                 // background:'rgba(255,255,255,0.1)', // FJARLÆGT
+                 background: 'transparent',
+                 borderRadius:'50%', padding:'10px', marginBottom:'10px'
+             }}>
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6"/></svg>
              </div>
              <span style={{fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '2px', fontWeight: 'bold'}}>Loka</span>
