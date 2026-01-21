@@ -217,12 +217,16 @@ body::before {
   height: 100%;
   object-fit: cover;
   z-index: 0;
-  animation: slowZoom 20s ease-out infinite alternate;
+  /* Removed slowZoom animation for performance */
 }
 
-@keyframes slowZoom {
-  0% { transform: scale(1); }
-  100% { transform: scale(1.1); }
+/* Performance hints for animated elements */
+.news-card img {
+  will-change: opacity, filter;
+}
+
+.news-card {
+  will-change: transform;
 }
 
 .overlay {
@@ -266,9 +270,9 @@ body::before {
 .search-overlay {
   position: fixed;
   inset: 0; /* Þekur allan skjáinn */
-  background: rgba(0, 0, 0, 0.85); /* Dökkur grunnur */
-  backdrop-filter: blur(20px);     /* Sterkt blur */
-  -webkit-backdrop-filter: blur(20px);
+  background: rgba(0, 0, 0, 0.92); /* Darker to compensate for less blur */
+  backdrop-filter: blur(8px);     /* Reduced blur for performance */
+  -webkit-backdrop-filter: blur(8px);
   z-index: 6000; /* Verður að vera hærra en header (sem er 5000) */
   display: flex;
   flex-direction: column;
@@ -295,17 +299,15 @@ body::before {
 
 .search-input {
   width: 100%;
-  background: rgba(255, 255, 255, 0.1); /* Hálfgegnsætt hvítt (glass) */
-  backdrop-filter: blur(10px);        
-  -webkit-backdrop-filter: blur(10px);
+  background: rgba(255, 255, 255, 0.12); /* Slightly more opaque */
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 50px;                /* Rúnaðir endar */
-  padding: 14px 24px;       
+  padding: 14px 24px;
   padding-right: 50px; /* Pláss fyrir icon hægra megin */
   color: white;
   font-size: 1.1rem;
   outline: none;
-  transition: all 0.3s ease;
+  transition: background 0.2s ease, border-color 0.2s ease;
   box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
 }
 

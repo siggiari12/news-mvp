@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useRef, useMemo } from "react";
+import Image from "next/image";
 import { supabaseBrowser } from "@/lib/supabase";
 
 // --- SAMRÆMD TÝPA ---
@@ -192,13 +193,13 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
     >
       {/* 1. BAKGRUNNUR (Fallback) */}
       <div style={{
-        position: 'absolute', 
-        top: 0, left: 0, width: '100%', height: '100%', 
-        backgroundColor: branding.bg, 
-        zIndex: 0, 
+        position: 'absolute',
+        top: 0, left: 0, width: '100%', height: '100%',
+        backgroundColor: branding.bg,
+        zIndex: 0,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        filter: isExpanded ? 'brightness(0.3) blur(20px)' : 'none',
-        transition: 'all 0.5s ease'
+        filter: isExpanded ? 'brightness(0.2)' : 'none',
+        transition: 'filter 0.3s ease'
       }}>
           {/* Lógó logic - Birtist BARA ef engin gild mynd fannst */}
           {!displayImage && branding.logo ? (
@@ -225,19 +226,20 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
       {/* 2. AÐALMYND */}
       {/* Við renderum bara img tagið ef displayImage er til staðar og löglegt */}
       {displayImage && (
-        <img 
-            src={displayImage} 
-            alt={article.title} 
-            referrerPolicy="no-referrer"
-            onError={() => setImgError(true)} 
-            style={{ 
-                position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', 
+        <Image
+            src={displayImage}
+            alt={article.title}
+            fill
+            sizes="100vw"
+            priority={false}
+            onError={() => setImgError(true)}
+            style={{
                 objectFit: 'cover',
-                zIndex: 1, 
-                filter: isExpanded ? 'brightness(0.3) blur(20px)' : 'none', 
-                transition: 'all 0.5s ease',
-                opacity: isExpanded ? 0.4 : 1
-            }} 
+                zIndex: 1,
+                filter: isExpanded ? 'brightness(0.2)' : 'none',
+                transition: 'filter 0.3s ease, opacity 0.3s ease',
+                opacity: isExpanded ? 0.5 : 1
+            }}
         />
       )}
       
@@ -253,9 +255,9 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
       {showCloseButton && !isExpanded && (
           <button onClick={(e) => { e.stopPropagation(); onClose(); }} style={{
                 position: 'absolute', top: '20px', right: '20px', zIndex: 50,
-                background: 'rgba(0,0,0,0.5)', border: 'none', borderRadius: '50%',
+                background: 'rgba(0,0,0,0.6)', border: 'none', borderRadius: '50%',
                 width: '40px', height: '40px', color: 'white', fontSize: '1.2rem',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(5px)', cursor: 'pointer'
+                display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer'
             }}>✕</button>
       )}
 
@@ -343,8 +345,8 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
                         return (
                             <button key={item.id || index} onClick={() => handleOutboundClick(item.url, sName)} style={{
                                     display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '16px 20px',
-                                    background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px',
-                                    backdropFilter: 'blur(10px)', color: 'white', cursor: 'pointer', textAlign: 'left'
+                                    background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '16px',
+                                    color: 'white', cursor: 'pointer', textAlign: 'left'
                                 }}>
                                 <span style={{fontWeight: 'bold', fontSize: '0.95rem'}}>Lesa á {sName}</span>
                                 <svg style={{opacity:0.7}} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
@@ -369,10 +371,9 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                                     {backgroundInfo.map((item, idx) => (
                                         <div key={idx} style={{
-                                            background: 'linear-gradient(145deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%)', 
-                                            backdropFilter: 'blur(10px)', 
+                                            background: 'linear-gradient(145deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%)',
                                             border: '1px solid rgba(255,255,255,0.1)',
-                                            borderRadius: '20px', 
+                                            borderRadius: '20px',
                                             padding: '24px',
                                             boxShadow: '0 4px 15px rgba(0,0,0,0.2)'
                                         }}>

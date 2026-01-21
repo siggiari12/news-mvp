@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import NewsCard from "./NewsCard";
 import { supabaseBrowser } from "@/lib/supabase";
 
@@ -133,15 +133,15 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
     
     try {
         const { data } = await supabaseBrowser
-          .rpc('get_ranked_feed', { 
+          .rpc('get_ranked_feed', {
             device_id_input: deviceId,
-            limit_count: 40, 
-            offset_count: 0 
+            limit_count: 20,  // Smaller batch for faster refresh
+            offset_count: 0
           });
-        
+
         if (data && data.length > 0) {
           setArticles(formatData(data));
-          setOffset(40);
+          setOffset(20);
           setHasMore(true);
         }
     } catch (e) {
@@ -250,22 +250,25 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
     };
   }, []);
 
-  // --- SCROLL HANDLER (Með requestAnimationFrame fyrir performance) ---
-  const handleScroll = (e: React.UIEvent<HTMLElement>) => {
-      const target = e.currentTarget;
-      
-      requestAnimationFrame(() => {
-          const height = target.clientHeight;
-          const scrollTop = target.scrollTop;
-          
-          const index = Math.round(scrollTop / height);
-          setActiveIndex(index);
+  // --- SCROLL HANDLER (Throttled for performance) ---
+  const lastScrollUpdate = useRef(0);
+  const handleScroll = useCallback((e: React.UIEvent<HTMLElement>) => {
+      const now = Date.now();
+      // Throttle to max 10 updates per second (100ms)
+      if (now - lastScrollUpdate.current < 100) return;
+      lastScrollUpdate.current = now;
 
-          if (hasMore && !isFetchingMore && (index >= filteredArticles.length - 5)) {
-              fetchMoreNews();
-          }
-      });
-  };
+      const target = e.currentTarget;
+      const height = target.clientHeight;
+      const scrollTop = target.scrollTop;
+      const index = Math.round(scrollTop / height);
+
+      setActiveIndex(index);
+
+      if (hasMore && !isFetchingMore && (index >= filteredArticles.length - 5)) {
+          fetchMoreNews();
+      }
+  }, [hasMore, isFetchingMore, filteredArticles.length]);
 
   if (loading && articles.length === 0) return <div style={{background: '#000', height: '100vh'}} />;
 
@@ -341,8 +344,8 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
       )}
 
       {filteredArticles.map((article, index) => {
-        // VIRTUALIZATION LOGIC:
-        const isVisible = Math.abs(activeIndex - index) <= 2;
+        // VIRTUALIZATION LOGIC: Render ±4 cards for smoother scroll-snap
+        const isVisible = Math.abs(activeIndex - index) <= 4;
 
         if (!isVisible) {
             return <div key={article.id} style={{height: '100dvh', width: '100%', scrollSnapAlign: 'start'}} />;

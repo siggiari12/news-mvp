@@ -10,7 +10,7 @@ export default async function Home() {
   const { data: rankedArticles, error } = await supabase
     .rpc('get_ranked_feed', {
       device_id_input: 'server',
-      limit_count: 50,
+      limit_count: 15,  // Reduced for faster initial load
       offset_count: 0
     });
 
