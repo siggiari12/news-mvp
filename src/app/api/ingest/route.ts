@@ -209,8 +209,113 @@ async function generateEmbedding(text: string) {
   } catch (e) { return null; }
 }
 
+// --- EXPLAINER GENERATION WITH GUARDRAILS ---
+const EXPLAINER_MIN_TEXT_LENGTH = 500;  // Only generate for substantial articles
+const EXPLAINER_MAX_PER_RUN = 10;       // Cost control: max articles per ingest run
+let explainersGeneratedThisRun = 0;
+
+interface Explainer {
+  term: string;
+  explanation: string;
+  term_type: 'person' | 'organization' | 'place' | 'term' | 'entity';
+}
+
+async function generateExplainers(title: string, text: string, language: string): Promise<Explainer[]> {
+  // Feature flag check
+  if (process.env.ENABLE_EXPLAINERS !== 'true') {
+    return [];
+  }
+
+  // Rate/cost control
+  if (explainersGeneratedThisRun >= EXPLAINER_MAX_PER_RUN) {
+    return [];
+  }
+
+  // Text length check
+  if (!text || text.length < EXPLAINER_MIN_TEXT_LENGTH) {
+    return [];
+  }
+
+  try {
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
+    const inputText = `${title}\n\n${text}`.substring(0, 4000);
+
+    const systemPrompt = language === 'is'
+      ? `Þú ert fréttaritstjóri. Finndu 2-5 mikilvæg hugtök, persónur, samtök eða staði í fréttinni sem lesandi gæti þurft útskýringu á.
+
+Reglur:
+- Einbeita þér að: Íslenskum stjórnmálamönnum, stofnunum, tæknilegum hugtökum, erlendum nöfnum/stöðum
+- Útskýringar eiga að vera 1-2 setningar, hnitmiðaðar og upplýsandi
+- Ekki útskýra algeng orð sem flestir þekkja
+
+OUTPUT JSON:
+{
+  "explainers": [
+    {"term": "Orðið/Nafnið", "explanation": "Stutt útskýring", "term_type": "person|organization|place|term|entity"}
+  ]
+}`
+      : `You are a news editor. Find 2-5 important terms, people, organizations, or places in this article that readers might need explained.
+
+Rules:
+- Focus on: Politicians, organizations, technical terms, foreign names/places
+- Explanations should be 1-2 sentences, concise and informative
+- Don't explain common words that most people know
+
+OUTPUT JSON:
+{
+  "explainers": [
+    {"term": "The word/name", "explanation": "Brief explanation", "term_type": "person|organization|place|term|entity"}
+  ]
+}`;
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: inputText }
+      ],
+      temperature: 0.3,
+      response_format: { type: "json_object" }
+    });
+
+    explainersGeneratedThisRun++;
+
+    const result = JSON.parse(response.choices[0].message.content || '{}');
+    const explainers = result.explainers || [];
+
+    return explainers
+      .filter((e: any) => e.term && e.explanation && e.term.length > 1 && e.explanation.length > 5)
+      .slice(0, 5)
+      .map((e: any) => ({
+        term: e.term.substring(0, 100),
+        explanation: e.explanation.substring(0, 500),
+        term_type: ['person', 'organization', 'place', 'term', 'entity'].includes(e.term_type)
+          ? e.term_type
+          : 'entity'
+      }));
+
+  } catch (e) {
+    console.error('Explainer generation failed:', e);
+    return [];
+  }
+}
+
 // --- MAIN GET (Optimized: Parallel Prep -> Serial Save) ---
-export async function GET() {
+export async function GET(request: Request) {
+  // --- SECURITY: Fail-closed - require INGEST_SECRET ---
+  const ingestSecret = process.env.INGEST_SECRET;
+  if (!ingestSecret) {
+    console.error('INGEST_SECRET env var not configured');
+    return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 });
+  }
+  const providedSecret = request.headers.get('X-INGEST-SECRET');
+  if (providedSecret !== ingestSecret) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // Reset per-run counter
+  explainersGeneratedThisRun = 0;
+
   const supa = supabaseServer();
   const parser = new Parser({ customFields: { item: [['media:content', 'media'], ['media:thumbnail', 'thumbnail'], ['enclosure', 'enclosure']] }});
   const startTime = Date.now();
@@ -406,6 +511,21 @@ export async function GET() {
         if (!error && saved) {
             await supa.from('article_embeddings').upsert({ article_id: saved.id, embedding });
             totalSaved++;
+
+            // --- EXPLAINER GENERATION (Idempotent) ---
+            const { count: existingExplainerCount } = await supa
+              .from('explainers')
+              .select('*', { count: 'exact', head: true })
+              .eq('article_id', saved.id);
+
+            if (!existingExplainerCount || existingExplainerCount === 0) {
+              const language = processed.category === 'erlent' ? 'en' : 'is';
+              const explainers = await generateExplainers(saved.title, processed.text, language);
+              if (explainers.length > 0) {
+                const rows = explainers.map(e => ({ article_id: saved.id, ...e }));
+                await supa.from('explainers').upsert(rows, { onConflict: 'article_id,term' });
+              }
+            }
 
             // TOPIC LOGIC (Serial - First come first served)
             const topicCandidates = matchDetails.filter((d: any) => {

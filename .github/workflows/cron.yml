@@ -1,14 +1,33 @@
 name: Sækja fréttir
+#
+# Required GitHub Secrets:
+#   INGEST_SECRET - Shared secret for authenticating /api/ingest endpoint
+#
+# Required Vercel Environment Variables:
+#   INGEST_SECRET       - Must match the GitHub Secret above
+#   ENABLE_EXPLAINERS   - Set to "true" to enable explainer generation (optional)
+#   OPENAI_API_KEY      - Required for AI processing
+#
 
 on:
   schedule:
-    - cron: '*/5 * * * *' # Breytt í 5 mínútur
-  workflow_dispatch:      # Leyfa handvirka keyrslu
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
 
 jobs:
   cron-job:
     runs-on: ubuntu-latest
     steps:
       - name: Sækja fréttir
-        # Mundu að setja þína slóð hér!
-        run: curl -L https://news-mvp-five.vercel.app/api/ingest
+        env:
+          INGEST_SECRET: ${{ secrets.INGEST_SECRET }}
+        run: |
+          response=$(curl -s -w "\n%{http_code}" -H "X-INGEST-SECRET: $INGEST_SECRET" https://news-mvp-five.vercel.app/api/ingest)
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+          echo "Response: $body"
+          echo "HTTP Status: $http_code"
+          if [ "$http_code" -ne 200 ]; then
+            echo "::error::Ingest failed with status $http_code"
+            exit 1
+          fi
