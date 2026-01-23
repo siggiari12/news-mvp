@@ -28,9 +28,12 @@ CREATE INDEX IF NOT EXISTS idx_explainers_article_id ON explainers(article_id);
 ALTER TABLE explainers ENABLE ROW LEVEL SECURITY;
 
 -- ONLY allow public SELECT - no INSERT/UPDATE/DELETE for anon users
+DROP POLICY IF EXISTS "Public read access" ON explainers;
+
 CREATE POLICY "Public read access"
-    ON explainers FOR SELECT
-    USING (true);
+  ON explainers FOR SELECT
+  USING (true);
+
 
 -- No write policies = anon users cannot write
 -- Service role (used in /api/ingest) bypasses RLS and can write
