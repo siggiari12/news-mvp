@@ -1,7 +1,8 @@
 import { supabaseServer } from "@/lib/supabase";
 import FeedWrapper from "@/components/FeedWrapper"; // BREYTING: Notum Wrapperinn
 
-export const dynamic = 'force-dynamic';
+// ISR: Cache for 60 seconds, revalidate in background
+export const revalidate = 60;
 
 export default async function Home() {
   const supabase = supabaseServer();

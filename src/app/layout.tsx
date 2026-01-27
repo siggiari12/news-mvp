@@ -1,21 +1,30 @@
-import type { Metadata } from "next";
-import { Inter } from "next/font/google"; // Sækjum Inter letrið
+import type { Metadata, Viewport } from "next";
+import { Inter } from "next/font/google";
 import "./globals.css";
 
-// Stilla letrið
-const inter = Inter({ subsets: ["latin"] });
+// Font with swap to prevent blocking render
+const inter = Inter({
+  subsets: ["latin"],
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "VIZKA",
   description: "Nýjustu fréttirnar",
   manifest: "/manifest.json",
-  themeColor: "#000000",
-  viewport: "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
     title: "VIZKA",
   },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  themeColor: "#000000",
 };
 
 
@@ -26,6 +35,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="is">
+      <head>
+        {/* Preconnect to critical origins for faster resource loading */}
+        <link rel="preconnect" href="https://xbxeuuuuwayjtrszqgiv.supabase.co" />
+        <link rel="preconnect" href="https://images.mbl.is" />
+        <link rel="dns-prefetch" href="https://xbxeuuuuwayjtrszqgiv.supabase.co" />
+      </head>
       <body className={inter.className}>{children}</body>
     </html>
   );

@@ -33,7 +33,7 @@ VIZKA is an Icelandic news aggregation app with a TikTok-style swipe-through int
 | **TikTok-style UX** | Full-screen, swipe-through cards for addictive news browsing |
 | **Multi-source Topics** | Same story grouped from RÚV, MBL, Vísir, etc. - see all perspectives |
 | **AI Summaries** | GPT-generated summaries save reading time, link to source for full article |
-| **Inline Explainers** | Difficult words, organizations, people, and topics explained via tooltips |
+| **Related Context** | AI-generated background Q&A to help users understand the story |
 | **All-in-one** | One app replaces checking multiple news sites |
 
 ---
@@ -65,20 +65,6 @@ VIZKA is an Icelandic news aggregation app with a TikTok-style swipe-through int
 - Tapping reveals all source perspectives on that story
 
 **MVP Decision:** Start with conservative grouping. Tune based on user feedback post-launch.
-
-#### 4. Inline Explainers (Tooltips)
-- Highlight terms, organizations, people, and topics that may need explanation
-- Tap highlighted text to reveal explanation tooltip
-- Explanations are concise (1-2 sentences)
-
-**Behavior:**
-- Target 2-5 explainers per article (not overwhelming)
-- Focus on: Icelandic politicians, organizations, technical terms, foreign names/places
-- Tooltip appears inline, dismisses on tap outside
-
-**MVP Decision:** Generate explainers during article ingest. Start with named entities (people, organizations, places). Expand scope based on user engagement data.
-
-**Future:** User-triggered "explain this" for any selected text.
 
 ### Nice-to-Have (Post-Launch)
 
@@ -260,7 +246,6 @@ When articles lack quality images:
 - [ ] Performance: Fix scrolling lag/jank
 - [ ] Feature: Topic grouping working accurately
 - [ ] Feature: AI summaries generating correctly
-- [ ] Feature: Inline explainers implemented
 - [ ] PWA: App wrapped and tested on iOS/Android
 - [ ] App Store: Submitted to App Store and Play Store
 - [ ] Legal: Get guidance on content usage
@@ -326,7 +311,6 @@ When articles lack quality images:
 |------|------------|--------|------------|
 | **Performance Issues Not Resolved** | Medium | Medium - Poor reviews, user churn | Dedicated performance investigation before launch. Profile and fix specific bottlenecks. |
 | **Topic Grouping Inaccuracy** | Medium | Medium - Confuses users | Start conservative. Add user feedback mechanism. Tune thresholds based on data. |
-| **Inline Explainers Delay Launch** | Medium | Medium - Extends timeline | Could launch without explainers as V1.1 feature if needed. Core feed is more critical. |
 
 ### Low Priority Risks
 
