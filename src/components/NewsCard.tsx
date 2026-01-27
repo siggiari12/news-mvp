@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, memo } from "react";
 import Image from "next/image";
 import { supabaseBrowser } from "@/lib/supabase";
 
@@ -40,7 +40,7 @@ function getDeviceId() {
   return id;
 }
 
-export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelatedClick, showCloseButton }: NewsCardProps) {
+function NewsCard({ article, isExpanded, onOpen, onClose, onRelatedClick, showCloseButton }: NewsCardProps) {
   if (!article) return null;
 
   const [activeTab, setActiveTab] = useState<'read' | 'related'>('read');
@@ -485,9 +485,12 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
 function tabStyle(isActive: boolean) {
   return {
     flex: 1, padding: '12px 0', background: 'none', border: 'none',
-    color: isActive ? 'white' : 'rgba(255,255,255,0.4)', 
+    color: isActive ? 'white' : 'rgba(255,255,255,0.4)',
     borderBottom: isActive ? '2px solid white' : '2px solid rgba(255,255,255,0.1)',
     fontWeight: 'bold', fontSize: '0.95rem', cursor: 'pointer',
     transition: 'all 0.2s ease'
   };
 }
+
+// Memoize to prevent re-renders during scroll when props haven't changed
+export default memo(NewsCard);

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
+import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 
 // Font with swap to prevent blocking render
 const inter = Inter({
@@ -41,7 +42,10 @@ export default function RootLayout({
         <link rel="preconnect" href="https://images.mbl.is" />
         <link rel="dns-prefetch" href="https://xbxeuuuuwayjtrszqgiv.supabase.co" />
       </head>
-      <body className={inter.className}>{children}</body>
+      <body className={inter.className}>
+        <ServiceWorkerRegister />
+        {children}
+      </body>
     </html>
   );
 }

@@ -252,6 +252,7 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
 
   // --- SCROLL HANDLER (Throttled for performance) ---
   const lastScrollUpdate = useRef(0);
+  const lastIndex = useRef(0);
   const handleScroll = useCallback((e: React.UIEvent<HTMLElement>) => {
       const now = Date.now();
       // Throttle to max 10 updates per second (100ms)
@@ -263,7 +264,11 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
       const scrollTop = target.scrollTop;
       const index = Math.round(scrollTop / height);
 
-      setActiveIndex(index);
+      // Only update state if index actually changed (avoids unnecessary re-renders)
+      if (index !== lastIndex.current) {
+          lastIndex.current = index;
+          setActiveIndex(index);
+      }
 
       if (hasMore && !isFetchingMore && (index >= filteredArticles.length - 5)) {
           fetchMoreNews();
@@ -344,21 +349,21 @@ export default function NewsFeed({ initialArticles, activeCategory, showSearchPr
       )}
 
       {filteredArticles.map((article, index) => {
-        // VIRTUALIZATION LOGIC: Render ±4 cards for smoother scroll-snap
-        const isVisible = Math.abs(activeIndex - index) <= 4;
+        // VIRTUALIZATION LOGIC: Render ±3 cards for smoother scroll-snap
+        const isVisible = Math.abs(activeIndex - index) <= 3;
 
         if (!isVisible) {
-            return <div key={article.id} style={{height: '100dvh', width: '100%', scrollSnapAlign: 'start'}} />;
+            return <div key={article.id} className="news-card-placeholder" />;
         }
 
         return (
-            <NewsCard 
-                key={article.id} 
+            <NewsCard
+                key={article.id}
                 article={article}
-                isExpanded={readingId === article.id} 
-                onOpen={() => setReadingId(article.id)} 
-                onClose={() => setReadingId(null)} 
-                onRelatedClick={handleRelatedClick} 
+                isExpanded={readingId === article.id}
+                onOpen={() => setReadingId(article.id)}
+                onClose={() => setReadingId(null)}
+                onRelatedClick={handleRelatedClick}
             />
         );
       })}

@@ -191,7 +191,9 @@ body::before {
   width: 100%;
   overflow-y: scroll;
   scroll-snap-type: y mandatory;
-  scroll-behavior: smooth;
+  /* Removed scroll-behavior: smooth - conflicts with scroll-snap */
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
 }
 
 .news-card {
@@ -207,6 +209,8 @@ body::before {
   padding: 24px;
   border-bottom: 1px solid #111;
   overflow: hidden;
+  /* Performance: isolate paint/layout to this element */
+  contain: layout style paint;
 }
 
 .bg-image {
@@ -225,8 +229,14 @@ body::before {
   will-change: opacity, filter;
 }
 
-.news-card {
-  will-change: transform;
+/* Placeholder cards (virtualized) - skip rendering entirely */
+.news-card-placeholder {
+  height: 100vh;
+  height: 100dvh;
+  width: 100%;
+  scroll-snap-align: start;
+  content-visibility: auto;
+  contain-intrinsic-size: 100vw 100dvh;
 }
 
 .overlay {
