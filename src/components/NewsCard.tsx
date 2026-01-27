@@ -21,15 +21,6 @@ interface Article {
     importance?: number;
 }
 
-interface Explainer {
-    term: string;
-    explanation: string;
-    term_type: string;
-}
-
-// Module-level cache - persists across renders/unmounts
-const explainersCache = new Map<string, Explainer[]>();
-
 interface NewsCardProps {
     article: Article;
     isExpanded: boolean;
@@ -67,10 +58,6 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
   // Nýtt state fyrir AI bakgrunninn
   const [backgroundInfo, setBackgroundInfo] = useState<{question: string, answer: string}[]>([]);
 
-  // Explainers state
-  const [explainers, setExplainers] = useState<Explainer[]>([]);
-  const [activeExplainer, setActiveExplainer] = useState<{term: string, explanation: string} | null>(null);
-
   const cardRef = useRef<HTMLElement>(null);
   
   const isMultiSourceTopic = (article.article_count || 0) > 1;
@@ -99,10 +86,6 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
       if (isMultiSourceTopic && topicArticles.length === 0) fetchTopicArticles();
       if (isMultiSourceTopic && !unifiedStory && !loadingText) fetchSummary();
       if (relatedArticles.length === 0 && !loadingRelated) fetchRelated();
-      if (explainers.length === 0) fetchExplainers();
-    } else {
-      // Close tooltip when card collapses
-      setActiveExplainer(null);
     }
   }, [isExpanded]);
 
@@ -160,28 +143,6 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
     }
   };
 
-  const fetchExplainers = async () => {
-    // Check cache first
-    const cached = explainersCache.get(article.id);
-    if (cached) {
-      setExplainers(cached);
-      return;
-    }
-
-    try {
-      const { data } = await supabaseBrowser
-        .from('explainers')
-        .select('term, explanation, term_type')
-        .eq('article_id', article.id);
-
-      const result = (data || []) as Explainer[];
-      explainersCache.set(article.id, result);
-      setExplainers(result);
-    } catch (e) {
-      console.error("Explainers error:", e);
-    }
-  };
-
   const handleOutboundClick = (url: string | undefined, specificSource?: string) => {
       if (!url) return;
       const deviceId = getDeviceId();
@@ -218,71 +179,6 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
   const displayImage = (candidateImage && isValidImage(candidateImage) && !imgError) ? candidateImage : null;
   
   const summaryText = unifiedStory || article.full_text || article.excerpt;
-
-  // Render text with highlighted explainer terms
-  const renderTextWithExplainers = (text: string) => {
-    if (!text || explainers.length === 0) {
-      return text.split('\n').map((p: string, i: number) =>
-        p.trim() && <p key={i} style={{marginBottom:'15px'}}>{p.replace(/\[Lesa nánar.*\]/, '')}</p>
-      );
-    }
-
-    return text.split('\n').map((paragraph: string, pIdx: number) => {
-      if (!paragraph.trim()) return null;
-
-      const cleanedParagraph = paragraph.replace(/\[Lesa nánar.*\]/, '');
-      let lastIndex = 0;
-      const segments: React.ReactNode[] = [];
-
-      // Sort explainers by position in text (find first occurrence)
-      const matches: {term: string, explanation: string, index: number}[] = [];
-      explainers.forEach(exp => {
-        const regex = new RegExp(`\\b${exp.term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
-        const match = regex.exec(cleanedParagraph);
-        if (match) {
-          matches.push({term: exp.term, explanation: exp.explanation, index: match.index});
-        }
-      });
-
-      matches.sort((a, b) => a.index - b.index);
-
-      // Build segments with highlighted terms
-      matches.forEach((match, mIdx) => {
-        const termLength = match.term.length;
-        // Add text before this match
-        if (match.index > lastIndex) {
-          segments.push(cleanedParagraph.slice(lastIndex, match.index));
-        }
-        // Add the highlighted term
-        const actualTerm = cleanedParagraph.slice(match.index, match.index + termLength);
-        segments.push(
-          <span
-            key={`${pIdx}-${mIdx}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              setActiveExplainer({term: actualTerm, explanation: match.explanation});
-            }}
-            style={{
-              textDecoration: 'underline',
-              textDecorationStyle: 'dotted',
-              textDecorationColor: 'rgba(255,255,255,0.5)',
-              cursor: 'pointer'
-            }}
-          >
-            {actualTerm}
-          </span>
-        );
-        lastIndex = match.index + termLength;
-      });
-
-      // Add remaining text
-      if (lastIndex < cleanedParagraph.length) {
-        segments.push(cleanedParagraph.slice(lastIndex));
-      }
-
-      return <p key={pIdx} style={{marginBottom:'15px'}}>{segments.length > 0 ? segments : cleanedParagraph}</p>;
-    });
-  };
 
   return (
     <section 
@@ -439,7 +335,9 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
              <div style={{fontSize: '1.05rem', lineHeight: '1.7', color: '#eee'}}>
                <div style={{marginBottom: '30px'}}>
                     {loadingText && !summaryText ? <div style={{color:'#aaa', fontStyle:'italic'}}>🤖 Sæki samantekt...</div> : (
-                        renderTextWithExplainers(summaryText || '')
+                        summaryText?.split('\n').map((p: string, i: number) =>
+                          p.trim() && <p key={i} style={{marginBottom:'15px'}}>{p.replace(/\[Lesa nánar.*\]/, '')}</p>
+                        )
                     )}
                </div>
                <div style={{display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '20px'}}>
@@ -578,70 +476,6 @@ export default function NewsCard({ article, isExpanded, onOpen, onClose, onRelat
              <span style={{fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '2px', fontWeight: 'bold'}}>Loka</span>
            </div>
         </div>
-
-        {/* Explainer Tooltip */}
-        {activeExplainer && (
-          <>
-            {/* Backdrop to dismiss */}
-            <div
-              onClick={() => setActiveExplainer(null)}
-              style={{
-                position: 'fixed',
-                inset: 0,
-                zIndex: 149,
-                background: 'transparent'
-              }}
-            />
-            {/* Tooltip */}
-            <div style={{
-              position: 'fixed',
-              bottom: '120px',
-              left: '20px',
-              right: '20px',
-              background: 'rgba(30,30,30,0.98)',
-              border: '1px solid rgba(255,255,255,0.2)',
-              borderRadius: '16px',
-              padding: '20px',
-              zIndex: 150,
-              boxShadow: '0 4px 30px rgba(0,0,0,0.6)',
-              animation: 'fadeIn 0.2s ease-out'
-            }}>
-              <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px'}}>
-                <span style={{
-                  fontWeight: 'bold',
-                  fontSize: '1.1rem',
-                  color: '#fff'
-                }}>
-                  {activeExplainer.term}
-                </span>
-                <button
-                  onClick={() => setActiveExplainer(null)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: 'rgba(255,255,255,0.6)',
-                    cursor: 'pointer',
-                    padding: '0',
-                    marginLeft: '10px'
-                  }}
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="18" y1="6" x2="6" y2="18"></line>
-                    <line x1="6" y1="6" x2="18" y2="18"></line>
-                  </svg>
-                </button>
-              </div>
-              <p style={{
-                fontSize: '0.95rem',
-                lineHeight: '1.6',
-                color: 'rgba(255,255,255,0.85)',
-                margin: 0
-              }}>
-                {activeExplainer.explanation}
-              </p>
-            </div>
-          </>
-        )}
       </div>
       )}
     </section>
