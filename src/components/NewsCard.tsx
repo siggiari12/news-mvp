@@ -163,6 +163,10 @@ function NewsCard({ article, isExpanded, onOpen, onClose, onRelatedClick, showCl
   // Fall sem sannprófar hvort slóðin sé í raun "alvöru" mynd eða bara lógó drasl
   const isValidImage = (url: string | undefined | null) => {
     if (!url) return false;
+
+    // Stock images from /public/stock/ are always valid
+    if (url.startsWith('/stock/')) return true;
+
     const lower = url.toLowerCase();
 
     // MBL Regla: Ef þetta er mbl slóð en vantar '/frimg/', þá er þetta rusl.

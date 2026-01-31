@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { supabaseServer } from '@/lib/supabase';
 import OpenAI from 'openai';
 import * as cheerio from 'cheerio';
+import stockManifest from '../../../../public/stock/manifest.json';
 
 export const maxDuration = 60; 
 export const dynamic = 'force-dynamic';
@@ -214,6 +215,54 @@ const EXPLAINER_MIN_TEXT_LENGTH = 500;  // Only generate for substantial article
 const EXPLAINER_MAX_PER_RUN = 10;       // Cost control: max articles per ingest run
 let explainersGeneratedThisRun = 0;
 
+// --- STOCK IMAGE MATCHING ---
+const ICELANDIC_FEEDS = ['mbl.is', 'ruv.is', 'visir.is', 'dv.is'];
+const STOCK_IMAGE_MATCH_THRESHOLD = 0.3;
+
+function isIcelandicSource(feedUrl: string): boolean {
+  return ICELANDIC_FEEDS.some(domain => feedUrl.includes(domain));
+}
+
+function cosineSimilarity(a: number[], b: number[]): number {
+  if (a.length !== b.length || a.length === 0) return 0;
+  let dot = 0, magA = 0, magB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    magA += a[i] * a[i];
+    magB += b[i] * b[i];
+  }
+  const denom = Math.sqrt(magA) * Math.sqrt(magB);
+  return denom === 0 ? 0 : dot / denom;
+}
+
+function matchStockImage(
+  articleEmbedding: number[],
+  recentlyUsedImageIds: Set<string>
+): string {
+  const fallbackImage = stockManifest.images.find(i => i.id === stockManifest.fallbackImageId);
+  const fallbackPath = `/stock/${fallbackImage?.filename || 'reykjavik-skyline-01.jpg'}`;
+
+  // Skip if manifest has no embeddings yet
+  const imagesWithEmbeddings = stockManifest.images.filter(img => img.embedding && img.embedding.length > 0);
+  if (imagesWithEmbeddings.length === 0) return fallbackPath;
+
+  let bestMatch = { id: '', score: 0, filename: '' };
+
+  for (const image of imagesWithEmbeddings) {
+    if (recentlyUsedImageIds.has(image.id)) continue;
+    const score = cosineSimilarity(articleEmbedding, image.embedding);
+    if (score > bestMatch.score) {
+      bestMatch = { id: image.id, score, filename: image.filename };
+    }
+  }
+
+  if (bestMatch.score < STOCK_IMAGE_MATCH_THRESHOLD || !bestMatch.filename) {
+    return fallbackPath;
+  }
+
+  return `/stock/${bestMatch.filename}`;
+}
+
 interface Explainer {
   term: string;
   explanation: string;
@@ -313,8 +362,22 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Reset per-run counter
+  // Reset per-run counters
   explainersGeneratedThisRun = 0;
+
+  // --- Query params for testing ---
+  const url = new URL(request.url);
+  const sourceFilter = url.searchParams.get('source'); // e.g., "mbl"
+  const maxTotalArticles = parseInt(url.searchParams.get('maxTotalArticles') || '0', 10) || 0;
+
+  // Filter feeds if source param provided
+  let feedsToProcess = RSS_FEEDS;
+  if (sourceFilter) {
+    feedsToProcess = RSS_FEEDS.filter(f => f.toLowerCase().includes(sourceFilter.toLowerCase()));
+    if (feedsToProcess.length === 0) {
+      return NextResponse.json({ error: `No feed matches source: ${sourceFilter}` }, { status: 400 });
+    }
+  }
 
   const supa = supabaseServer();
   const parser = new Parser({ customFields: { item: [['media:content', 'media'], ['media:thumbnail', 'thumbnail'], ['enclosure', 'enclosure']] }});
@@ -324,7 +387,7 @@ export async function GET(request: Request) {
   try {
     // --- 1. COLLECT PHASE (Parallel Feeds) ---
     // Sækjum alla RSS lista í einu
-    const feedPromises = RSS_FEEDS.map(async (feedUrl) => {
+    const feedPromises = feedsToProcess.map(async (feedUrl) => {
       try {
         const feed = await parser.parseURL(feedUrl);
         let sourceName = feed.title || 'Fréttir';
@@ -356,7 +419,8 @@ export async function GET(request: Request) {
             return (feed.items?.slice(0, 8) || []).map(item => ({
                 item,
                 sourceObj: source,
-                defaultCategory
+                defaultCategory,
+                feedUrl  // Include feedUrl for Icelandic source detection
             }));
         }
         return [];
@@ -379,10 +443,15 @@ export async function GET(request: Request) {
     const { data: existingArticles } = await supa.from('articles').select('url').in('url', validUrls);
     const existingUrlSet = new Set(existingArticles?.map(a => a.url) || []);
 
-    const newItems = allItems.filter(i => {
+    let newItems = allItems.filter(i => {
         const u = normalizeUrl(i.item.link || '');
         return u.length > 5 && !existingUrlSet.has(u);
     });
+
+    // Apply maxTotalArticles limit if specified
+    if (maxTotalArticles > 0 && newItems.length > maxTotalArticles) {
+      newItems = newItems.slice(0, maxTotalArticles);
+    }
 
     console.log(`Fann ${allItems.length} samtals, ${newItems.length} eru nýjar. Vinn samsíða...`);
 
@@ -390,31 +459,33 @@ export async function GET(request: Request) {
     // Hér gerist töfrarnir. GPT og Scraping keyrir samsíða fyrir allar nýjar fréttir.
     const processedResults = await Promise.all(newItems.map(async (data) => {
         try {
-            const { item, sourceObj, defaultCategory } = data;
+            const { item, sourceObj, defaultCategory, feedUrl } = data;
             const url = normalizeUrl(item.link || '');
-            
-            // Image handling
-            let imageUrl = null;
+
+            // Image and content handling - same for all sources
+            let imageUrl: string | null = null;
+            let scrapedText: string | null = null;
+
             if (item.media && item.media['$'] && item.media['$'].url) imageUrl = item.media['$'].url;
             else if (item.thumbnail && item.thumbnail['$'] && item.thumbnail['$'].url) imageUrl = item.thumbnail['$'].url;
             else if (item.enclosure && item.enclosure.url) imageUrl = item.enclosure.url;
 
-            // Fetch HTML & Jina
             const scraped = await fetchContentAndImage(url);
+            scrapedText = scraped.text;
             if (!imageUrl && scraped.image) imageUrl = scraped.image;
             imageUrl = cleanImageUrl(imageUrl);
 
             // GPT Summary
             const processed = await processArticle(
-                item.title || '', 
-                scraped.text || item.contentSnippet || '', 
-                item.contentSnippet || '', 
+                item.title || '',
+                scrapedText || item.contentSnippet || '',
+                item.contentSnippet || '',
                 defaultCategory,
                 url
             );
 
             // GPT Embedding
-            const embeddingText = (processed.title || '') + " " + (scraped.text || "").substring(0, 2000);
+            const embeddingText = (processed.title || '') + " " + (scrapedText || "").substring(0, 2000);
             const embedding = await generateEmbedding(embeddingText);
 
             return {
@@ -425,7 +496,8 @@ export async function GET(request: Request) {
                 imageUrl,
                 processed,
                 embedding,
-                isoDate: item.isoDate
+                isoDate: item.isoDate,
+                feedUrl
             };
         } catch (e) {
             return { success: false };
@@ -511,6 +583,27 @@ export async function GET(request: Request) {
         if (!error && saved) {
             await supa.from('article_embeddings').upsert({ article_id: saved.id, embedding });
             totalSaved++;
+
+            // --- STOCK IMAGE MATCHING (for Icelandic sources without images) ---
+            if (!saved.image_url && isIcelandicSource(res.feedUrl) && embedding) {
+                // Get recently used stock image IDs to avoid repeats
+                const { data: recentStockArticles } = await supa
+                    .from('articles')
+                    .select('image_url')
+                    .like('image_url', '/stock/%')
+                    .order('published_at', { ascending: false })
+                    .limit(10);
+
+                const recentlyUsedIds = new Set<string>();
+                for (const a of recentStockArticles || []) {
+                    const filename = a.image_url?.replace('/stock/', '').replace(/\.[^.]+$/, '');
+                    if (filename) recentlyUsedIds.add(filename);
+                }
+
+                const stockImagePath = matchStockImage(embedding, recentlyUsedIds);
+                await supa.from('articles').update({ image_url: stockImagePath }).eq('id', saved.id);
+                saved.image_url = stockImagePath;
+            }
 
             // --- EXPLAINER GENERATION (Idempotent) ---
             const { count: existingExplainerCount } = await supa
