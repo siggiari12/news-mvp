@@ -47,6 +47,19 @@ function matchStockImage(
   return `/stock/${bestMatch.filename}`;
 }
 
+function needsStockImage(imageUrl: string | null): boolean {
+  if (!imageUrl) return true;
+  // Old DALL-E Supabase Storage images
+  if (imageUrl.includes('supabase.co/storage')) return true;
+  // Already has a stock image
+  if (imageUrl.startsWith('/stock/')) return false;
+  // MBL logos/junk
+  if (imageUrl.includes('mbl.is') && !imageUrl.includes('/frimg/')) return true;
+  if (imageUrl.includes('mbl-logo') || imageUrl.includes('gfx/logo')) return true;
+  if (imageUrl.includes('default-image') || imageUrl.includes('placeholder')) return true;
+  return false;
+}
+
 export async function GET(request: Request) {
   // Auth check
   const ingestSecret = process.env.INGEST_SECRET;
@@ -58,6 +71,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const url = new URL(request.url);
+  const dryRun = url.searchParams.get('dry') === 'true';
+
   const supa = supabaseServer();
 
   // 1. Get Icelandic source IDs
@@ -67,21 +83,38 @@ export async function GET(request: Request) {
     .in('name', ICELANDIC_SOURCES);
 
   if (!sources || sources.length === 0) {
-    return NextResponse.json({ error: 'No Icelandic sources found' }, { status: 404 });
+    return NextResponse.json({ error: 'No Icelandic sources found', sources_checked: ICELANDIC_SOURCES }, { status: 404 });
   }
 
   const sourceIds = sources.map(s => s.id);
 
-  // 2. Find articles missing images from Icelandic sources
-  const { data: articles } = await supa
+  // 2. Find ALL articles from Icelandic sources, then filter by bad/missing images
+  const { data: allArticles } = await supa
     .from('articles')
-    .select('id, title, topic_id')
+    .select('id, title, topic_id, image_url')
     .in('source_id', sourceIds)
-    .is('image_url', null)
     .order('published_at', { ascending: false })
-    .limit(200);
+    .limit(500);
 
-  if (!articles || articles.length === 0) {
+  const articles = (allArticles || []).filter(a => needsStockImage(a.image_url));
+
+  if (dryRun) {
+    // Diagnostic mode: show what would be updated
+    const sampleImages = (allArticles || []).slice(0, 20).map(a => ({
+      id: a.id,
+      title: a.title?.substring(0, 60),
+      image_url: a.image_url,
+      needs_stock: needsStockImage(a.image_url)
+    }));
+    return NextResponse.json({
+      sources_found: sources.map(s => s.name),
+      total_icelandic_articles: allArticles?.length || 0,
+      articles_needing_stock_image: articles.length,
+      sample: sampleImages
+    });
+  }
+
+  if (articles.length === 0) {
     return NextResponse.json({ message: 'No articles need backfill', count: 0 });
   }
 
@@ -137,7 +170,7 @@ export async function GET(request: Request) {
       .eq('id', topicId)
       .maybeSingle();
 
-    if (topic && !topic.image_url) {
+    if (topic && needsStockImage(topic.image_url)) {
       await supa.from('topics').update({ image_url: imageUrl }).eq('id', topicId);
       topicsUpdated++;
     }
