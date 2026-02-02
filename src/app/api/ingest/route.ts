@@ -33,14 +33,16 @@ function cleanImageUrl(url: string | null): string | null {
   if (!url) return null;
   const lower = url.toLowerCase();
 
-  if (lower.includes('mbl-logo') || 
-      lower.includes('frontend/gfx/logo') || 
+  if (lower.includes('mbl-logo') ||
+      lower.includes('gfx/logo') ||
       lower.includes('default-image') ||
       lower.includes('placeholder')) {
-      return null; 
+      return null;
   }
-  
+
+  // MBL: only keep real content images (must contain /frimg/)
   if (url.includes('mbl.is')) {
+      if (!url.includes('/frimg/')) return null;
       return url.replace('/frimg/th/', '/frimg/').replace('/crop/', '/');
   }
   
