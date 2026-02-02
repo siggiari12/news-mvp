@@ -161,7 +161,7 @@ export async function GET(request: Request) {
     }
   }
 
-  // 5. Update topics that have null images
+  // 5. Update topics linked to backfilled articles
   let topicsUpdated = 0;
   for (const [topicId, imageUrl] of topicUpdates) {
     const { data: topic } = await supa
@@ -176,10 +176,61 @@ export async function GET(request: Request) {
     }
   }
 
+  // 6. Scan ALL topics for bad images (covers topics not linked to backfilled articles)
+  const { data: allTopics } = await supa
+    .from('topics')
+    .select('id, title, image_url')
+    .order('updated_at', { ascending: false })
+    .limit(500);
+
+  let topicsFixedDirectly = 0;
+  for (const topic of allTopics || []) {
+    if (!needsStockImage(topic.image_url)) continue;
+    if (topicUpdates.has(topic.id)) continue; // Already handled above
+
+    // Find the best article with a good image for this topic
+    const { data: topicArticle } = await supa
+      .from('articles')
+      .select('id, image_url')
+      .eq('topic_id', topic.id)
+      .not('image_url', 'is', null)
+      .limit(1)
+      .maybeSingle();
+
+    if (topicArticle && !needsStockImage(topicArticle.image_url)) {
+      // Use a good article image
+      await supa.from('topics').update({ image_url: topicArticle.image_url }).eq('id', topic.id);
+      topicsFixedDirectly++;
+    } else {
+      // No good article image found - get embedding from any article in this topic
+      const { data: anyArticle } = await supa
+        .from('articles')
+        .select('id')
+        .eq('topic_id', topic.id)
+        .limit(1)
+        .maybeSingle();
+
+      if (anyArticle) {
+        const { data: emb } = await supa
+          .from('article_embeddings')
+          .select('embedding')
+          .eq('article_id', anyArticle.id)
+          .maybeSingle();
+
+        if (emb?.embedding) {
+          const stockPath = matchStockImage(emb.embedding, recentlyUsedIds);
+          await supa.from('topics').update({ image_url: stockPath }).eq('id', topic.id);
+          topicsFixedDirectly++;
+        }
+      }
+    }
+  }
+
   return NextResponse.json({
     message: 'Backfill complete',
     articles_updated: updated,
     topics_updated: topicsUpdated,
+    topics_fixed_directly: topicsFixedDirectly,
     total_candidates: articles.length
   });
 }
