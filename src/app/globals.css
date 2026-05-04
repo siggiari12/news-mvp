@@ -1,0 +1,383 @@
+:root {
+  --background: #000000;
+  --foreground: #ffffff;
+  --header-height: 60px;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  overflow: hidden;
+}
+
+/* --- NÝR GRADIENT (SKUGGI) --- */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 180px; /* Nær vel niður fyrir flokkana */
+  background: linear-gradient(to bottom, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.4) 60%, transparent 100%);
+  z-index: 800; /* Liggur undir tökkunum en yfir fréttunum */
+  pointer-events: none; /* Truflar ekki smell */
+}
+
+
+/* --- HEADER OG VALMYND (NÝTT) --- */
+.app-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--header-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 px;
+  z-index: 1000;
+  background: transparent;
+}
+
+.header-btn {
+  top: 15px;
+  background: none;
+  border: none;
+  color: white;
+  cursor: pointer;
+  border-radius: 50%;
+  transition: background 0.2s;
+}
+
+.header-btn:active {
+  background: rgba(255,255,255,0.1);
+}
+
+.logo-container {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  top: 15px; /* Staðsetning frá toppi */
+  z-index: 1001;
+}
+.main-logo {
+  height: 30px; /* Stilltu hæðina á lógóinu hér */
+  width: auto;  /* Viðheldur hlutföllum */
+  display: block;
+}
+
+/* Sidebar / Valmynd */
+.menu-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  backdrop-filter: blur(2px);
+  z-index: 1100;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s;
+}
+.menu-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 280px;
+  background: #111;
+  border-right: 1px solid #333;
+  z-index: 1200;
+  transform: translateX(-100%);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+}
+.sidebar.open {
+  transform: translateX(0);
+}
+
+.menu-link {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 0;
+  color: #ccc;
+  text-decoration: none;
+  font-size: 18px;
+  border-bottom: 1px solid #222;
+}
+.menu-link:hover { color: white; }
+
+/* --- CATEGORY FILTER (NÝTT) --- */
+.category-bar {
+  position: fixed;
+  top: 65px;
+  left: 0;
+  right: 0;
+  z-index: 900;
+  padding: 0;
+  background: transparent; 
+}
+
+.scroll-row {
+  display: flex;
+  gap: 30px; /* Meira bil á milli orða */
+  padding: 0 20px;
+  justify-content: space-between; /* Miðjar flokkana (ef þeir eru fáir), annars scrolla þeir */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.scroll-row::-webkit-scrollbar { display: none; } /* Chrome/Safari */
+
+.cat-btn {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  
+  color: rgba(255, 255, 255, 0.6); /* Grár texti þegar hann er ekki valinn */
+  padding: 5px 0; /* Enginn hliðar padding, bara upp/niður fyrir línuna */
+  font-size: 16px; /* Stærra letur */
+  font-weight: 500;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+/* Línan undir (ósýnileg í byrjun) */
+.cat-btn::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background-color: #fff;
+  transform: scaleX(0); /* Falin */
+  transition: transform 0.2s ease;
+}
+
+.cat-btn:hover {
+  color: #fff;
+}
+
+/* Þegar flokkur er valinn */
+.cat-btn.active {
+  color: #ffffff;
+  font-weight: 700; /* Bold */
+  transform: scale(1); /* Engin stækkun á takkanum sjálfum */
+}
+.cat-btn.active::after {
+  transform: scaleX(1); /* Sýnir línuna */
+}
+
+/* --- FRÉTTASTRAUMUR (GAMLA GÓÐA) --- */
+.feed-container {
+  height: 100vh;
+  height: 100dvh;
+  width: 100%;
+  overflow-y: scroll;
+  scroll-snap-type: y mandatory;
+  /* Removed scroll-behavior: smooth - conflicts with scroll-snap */
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+
+.news-card {
+  height: 100vh;
+  height: 100dvh;
+  width: 100%;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 24px;
+  border-bottom: 1px solid #111;
+  overflow: hidden;
+  /* Performance: isolate paint/layout to this element */
+  contain: layout style paint;
+}
+
+.bg-image {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+  /* Removed slowZoom animation for performance */
+}
+
+/* Performance hints for animated elements */
+.news-card img {
+  will-change: opacity, filter;
+}
+
+/* Placeholder cards (virtualized) - skip rendering entirely */
+.news-card-placeholder {
+  height: 100vh;
+  height: 100dvh;
+  width: 100%;
+  scroll-snap-align: start;
+  content-visibility: auto;
+  contain-intrinsic-size: 100vw 100dvh;
+}
+
+.overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 70%;
+  background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0) 100%);
+  z-index: 1;
+  pointer-events: none;
+}
+
+.content {
+  position: relative;
+  z-index: 2;
+  margin-bottom: 60px;
+}
+
+.title {
+  font-size: 1.7rem;
+  font-weight: 800;
+  line-height: 1.2;
+  margin: 0 0 12px 0;
+  text-shadow: 0 2px 10px rgba(0,0,0,0.5);
+}
+
+.excerpt {
+  font-size: 1rem;
+  line-height: 1.5;
+  color: #ddd;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;         /* Staðlaði eiginleikinn (fyrir samhæfni) */
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+}
+
+/* --- LEIT OG OVERLAY --- */
+.search-overlay {
+  position: fixed;
+  inset: 0; /* Þekur allan skjáinn */
+  background: rgba(0, 0, 0, 0.92); /* Darker to compensate for less blur */
+  backdrop-filter: blur(8px);     /* Reduced blur for performance */
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 6000; /* Verður að vera hærra en header (sem er 5000) */
+  display: flex;
+  flex-direction: column;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.search-top-bar {
+  height: var(--header-height, 80px); /* Sama hæð og header */
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 0 20px;
+  /* Hálfgegnsætt svart svo blörið njóti sín, en textinn sést */
+  background: rgba(0, 0, 0, 0.3); 
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.search-top-bar form {
+    flex: 1;
+    position: relative; /* Til að stýra icon staðsetningu */
+    display: flex;
+    align-items: center;
+}
+
+.search-input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.12); /* Slightly more opaque */
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 50px;                /* Rúnaðir endar */
+  padding: 14px 24px;
+  padding-right: 50px; /* Pláss fyrir icon hægra megin */
+  color: white;
+  font-size: 1.1rem;
+  outline: none;
+  transition: background 0.2s ease, border-color 0.2s ease;
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+}
+
+.search-input:focus {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.4);
+    box-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
+}
+
+.search-input::placeholder {
+    color: rgba(255, 255, 255, 0.5);
+}
+
+/* Stækkunargler inni í inputinu (ef þú ert með takkann þar) */
+.search-top-bar form button[type="submit"] {
+    position: absolute;
+    right: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.6);
+    cursor: pointer;
+}
+
+.popular-searches {
+  padding: 40px 20px;
+  opacity: 0;
+  animation: slideUp 0.3s ease-out 0.1s forwards;
+}
+
+.tag-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 15px;
+}
+
+.search-tag {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.1);
+  padding: 10px 20px;
+  border-radius: 30px;
+  color: #ddd;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.search-tag:hover {
+  background: rgba(255,255,255,0.2);
+  color: #fff;
+  transform: translateY(-2px);
+  border-color: rgba(255,255,255,0.3);
+}
+
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
