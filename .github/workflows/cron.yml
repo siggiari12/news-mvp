@@ -1,33 +1,87 @@
 name: Sækja fréttir
-#
-# Required GitHub Secrets:
-#   INGEST_SECRET - Shared secret for authenticating /api/ingest endpoint
-#
-# Required Vercel Environment Variables:
-#   INGEST_SECRET       - Must match the GitHub Secret above
-#   ENABLE_EXPLAINERS   - Set to "true" to enable explainer generation (optional)
-#   OPENAI_API_KEY      - Required for AI processing
-#
 
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '*/15 * * * *'
   workflow_dispatch:
 
 jobs:
-  cron-job:
+  ingest:
     runs-on: ubuntu-latest
     steps:
-      - name: Sækja fréttir
+      - name: RÚV
         env:
           INGEST_SECRET: ${{ secrets.INGEST_SECRET }}
         run: |
-          response=$(curl -s -w "\n%{http_code}" -H "X-INGEST-SECRET: $INGEST_SECRET" https://news-mvp-five.vercel.app/api/ingest)
+          response=$(curl -s -w "\n%{http_code}" --max-time 55 \
+            -H "X-INGEST-SECRET: $INGEST_SECRET" \
+            "https://news-mvp-five.vercel.app/api/ingest?source=ruv&maxTotalArticles=5")
           http_code=$(echo "$response" | tail -n1)
           body=$(echo "$response" | sed '$d')
-          echo "Response: $body"
-          echo "HTTP Status: $http_code"
-          if [ "$http_code" -ne 200 ]; then
-            echo "::error::Ingest failed with status $http_code"
-            exit 1
-          fi
+          echo "RÚV → $http_code: $body"
+
+      - name: MBL
+        env:
+          INGEST_SECRET: ${{ secrets.INGEST_SECRET }}
+        run: |
+          response=$(curl -s -w "\n%{http_code}" --max-time 55 \
+            -H "X-INGEST-SECRET: $INGEST_SECRET" \
+            "https://news-mvp-five.vercel.app/api/ingest?source=mbl&maxTotalArticles=5")
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+          echo "MBL → $http_code: $body"
+
+      - name: Vísir
+        env:
+          INGEST_SECRET: ${{ secrets.INGEST_SECRET }}
+        run: |
+          response=$(curl -s -w "\n%{http_code}" --max-time 55 \
+            -H "X-INGEST-SECRET: $INGEST_SECRET" \
+            "https://news-mvp-five.vercel.app/api/ingest?source=visir&maxTotalArticles=5")
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+          echo "Vísir → $http_code: $body"
+
+      - name: DV
+        env:
+          INGEST_SECRET: ${{ secrets.INGEST_SECRET }}
+        run: |
+          response=$(curl -s -w "\n%{http_code}" --max-time 55 \
+            -H "X-INGEST-SECRET: $INGEST_SECRET" \
+            "https://news-mvp-five.vercel.app/api/ingest?source=dv&maxTotalArticles=5")
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+          echo "DV → $http_code: $body"
+
+      - name: BBC
+        env:
+          INGEST_SECRET: ${{ secrets.INGEST_SECRET }}
+        run: |
+          response=$(curl -s -w "\n%{http_code}" --max-time 55 \
+            -H "X-INGEST-SECRET: $INGEST_SECRET" \
+            "https://news-mvp-five.vercel.app/api/ingest?source=bbc&maxTotalArticles=5")
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+          echo "BBC → $http_code: $body"
+
+      - name: CNN
+        env:
+          INGEST_SECRET: ${{ secrets.INGEST_SECRET }}
+        run: |
+          response=$(curl -s -w "\n%{http_code}" --max-time 55 \
+            -H "X-INGEST-SECRET: $INGEST_SECRET" \
+            "https://news-mvp-five.vercel.app/api/ingest?source=cnn&maxTotalArticles=5")
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+          echo "CNN → $http_code: $body"
+
+      - name: The Guardian
+        env:
+          INGEST_SECRET: ${{ secrets.INGEST_SECRET }}
+        run: |
+          response=$(curl -s -w "\n%{http_code}" --max-time 55 \
+            -H "X-INGEST-SECRET: $INGEST_SECRET" \
+            "https://news-mvp-five.vercel.app/api/ingest?source=guardian&maxTotalArticles=5")
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+          echo "Guardian → $http_code: $body"
